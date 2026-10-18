@@ -63,11 +63,11 @@ export function App() {
   useEffect(() => {
     if (screen === "home") {
       // Initial focus: the first tile, or the first action when the library is empty.
-      const frame = requestAnimationFrame(() => {
+      const timer = setTimeout(() => {
         focusables()[0]?.focus();
         syncHint();
       });
-      return () => cancelAnimationFrame(frame);
+      return () => clearTimeout(timer);
     }
   }, [screen, entries, syncHint]);
 
