@@ -1,0 +1,27 @@
+[package]
+name = "romshelf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Steam Deck emulation manager"
+
+[lib]
+name = "romshelf_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "romshelf"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+romshelf-core = { path = "../crates/romshelf-core" }
+romshelf-testkit = { path = "../crates/romshelf-testkit" }
+tauri = { version = "2", features = [] }
+clap = { version = "4", features = ["derive"] }
+gilrs = "0.11"
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true

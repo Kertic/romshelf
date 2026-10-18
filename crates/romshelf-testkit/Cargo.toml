@@ -1,0 +1,10 @@
+[package]
+name = "romshelf-testkit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+romshelf-core = { path = "../romshelf-core" }
+serde_json.workspace = true
+tempfile.workspace = true

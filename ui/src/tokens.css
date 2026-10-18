@@ -1,0 +1,38 @@
+/* Design tokens from docs/kit/ui/UI-UX-GUIDE.md section 2. The reference HTML wins on any conflict. */
+:root {
+  --bg: #10161b;
+  --surface: #172027;
+  --raised: #1d2830;
+  --border-subtle: #25313a;
+  --border: #2e3b45;
+  --border-strong: #3a4852;
+  --text: #e8eef2;
+  --text-secondary: #c3ced6;
+  --text-muted: #9aa8b3;
+  --accent: #3dd6b5;
+  --on-accent: #0b1a17;
+  --warning: #ffb27a;
+  --danger: #ff9c8f;
+  --danger-border: #6b3a36;
+
+  --system-snes: #2b3f6b;
+  --system-gba: #1f6b62;
+  --system-n64: #5c5a22;
+  --system-ps2: #6b3a2b;
+  --system-gamecube: #4a3470;
+
+  --font-sans: "Sora", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --radius-cap: 6px;
+  --radius-row: 10px;
+  --radius-button: 12px;
+  --radius-card: 16px;
+
+  --target-min: 44px;
+  --row-height: 52px;
+  --primary-height: 56px;
+
+  --top-band: 64px;
+  --footer-band: 48px;
+}
