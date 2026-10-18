@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Romshelf: ROM page with emulator setup</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+button:disabled{cursor:default}
+a{color:#3DD6B5}a:hover{color:#7BE8D0}
+</style>
+</head>
+<body>
+<!-- Reference markup for a 1280x800 Steam Deck screen. Static: no behaviour. Accent colour is #3DD6B5. -->
+<div style="width: 1280px; height: 800px; box-sizing: border-box; background: #10161B; color: #E8EEF2; font-family: 'Sora', sans-serif; display: flex; flex-direction: column; overflow: hidden">
+
+<div style="flex-grow: 1; min-height: 0; display: flex; gap: 40px; padding: 28px 40px">
+
+<div style="width: 340px; flex: none; display: flex; flex-direction: column; gap: 18px">
+<a href="01-library.html" style="height: 44px; display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; color: #C3CED6; text-decoration: none">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"></path></svg>
+<span>Library</span>
+</a>
+<div style="height: 280px; border-radius: 16px; background: #4A3470; display: flex; flex-direction: column; justify-content: space-between; padding: 20px; box-sizing: border-box">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #EADFFF">GameCube</span>
+<span style="font-size: 88px; font-weight: 700; line-height: 0.9; color: #FFFFFF; letter-spacing: -0.04em">ML</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<h1 style="margin: 0; font-size: 38px; font-weight: 700; line-height: 1.05; letter-spacing: -0.03em">Moss &amp; Lantern</h1>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #9AA8B3">roms / gamecube / moss-and-lantern.rvz</span>
+<span style="font-size: 13px; color: #FFB27A">Needs Dolphin</span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: auto">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 12px; color: #9AA8B3">Size</span>
+<span style="font-size: 15px; font-weight: 600">1.36 GB</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 12px; color: #9AA8B3">Location</span>
+<span style="font-size: 15px; font-weight: 600">Drive only</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 12px; color: #9AA8B3">Save backup</span>
+<span style="font-size: 15px; font-weight: 600">None yet</span>
+</div>
+</div>
+</div>
+
+<div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 22px">
+
+<div style="border: 2px solid #3DD6B5; border-radius: 16px; padding: 22px; display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; align-items: flex-start; gap: 24px">
+<div style="flex-grow: 1; display: flex; flex-direction: column; gap: 8px">
+<h2 style="margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em">Dolphin isn't installed yet</h2>
+<p style="margin: 0; font-size: 14px; line-height: 1.55; color: #C3CED6">GameCube ROMs run in Dolphin. Setup installs it, applies your default Dolphin controls, and points its memory card at your Drive saves folder.</p>
+</div>
+<button style="height: 56px; padding: 0 26px; flex: none; border: none; border-radius: 12px; background: #3DD6B5; color: #0B1A17; font-size: 16px; font-weight: 700">Set up Dolphin</button>
+</div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+<div style="display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: #1D2830; border-radius: 10px">
+<span style="width: 26px; height: 26px; flex: none; border-radius: 50%; border: 1.5px solid #9AA8B3; font-family: 'JetBrains Mono', monospace; font-size: 13px; display: flex; align-items: center; justify-content: center">1</span>
+<span style="font-size: 13px; font-weight: 500">Install emulator</span>
+</div>
+<div style="display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: #1D2830; border-radius: 10px">
+<span style="width: 26px; height: 26px; flex: none; border-radius: 50%; border: 1.5px solid #9AA8B3; font-family: 'JetBrains Mono', monospace; font-size: 13px; display: flex; align-items: center; justify-content: center">2</span>
+<span style="font-size: 13px; font-weight: 500">Set default controls</span>
+</div>
+<div style="display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: #1D2830; border-radius: 10px">
+<span style="width: 26px; height: 26px; flex: none; border-radius: 50%; border: 1.5px solid #9AA8B3; font-family: 'JetBrains Mono', monospace; font-size: 13px; display: flex; align-items: center; justify-content: center">3</span>
+<span style="font-size: 13px; font-weight: 500">Link saves folder</span>
+</div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 12px; font-weight: 600; color: #9AA8B3; letter-spacing: 0.06em; text-transform: uppercase">Available now</span>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+<button style="min-height: 76px; padding: 12px 16px; border: 1px solid #2E3B45; border-radius: 12px; background: #1D2830; text-align: left; display: flex; flex-direction: column; justify-content: center; gap: 4px">
+<span style="font-size: 15px; font-weight: 600">Download to Deck</span>
+<span style="font-size: 12px; color: #9AA8B3">1.36 GB · 212 GB free</span>
+</button>
+<button style="min-height: 76px; padding: 12px 16px; border: 1px solid #2E3B45; border-radius: 12px; background: #1D2830; text-align: left; display: flex; flex-direction: column; justify-content: center; gap: 4px">
+<span style="font-size: 15px; font-weight: 600">Add to Steam library</span>
+<span style="font-size: 12px; color: #9AA8B3">Launching it opens this setup first</span>
+</button>
+<button style="min-height: 76px; padding: 12px 16px; border: 1px solid #6B3A36; border-radius: 12px; background: #1D2830; text-align: left; display: flex; flex-direction: column; justify-content: center; gap: 4px">
+<span style="font-size: 15px; font-weight: 600; color: #FF9C8F">Delete from Drive…</span>
+<span style="font-size: 12px; color: #9AA8B3">Asks before removing the file</span>
+</button>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 12px; font-weight: 600; color: #9AA8B3; letter-spacing: 0.06em; text-transform: uppercase">Unlocks with Dolphin</span>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+<button disabled style="min-height: 60px; padding: 10px 16px; border: 1px dashed #3A4852; border-radius: 12px; background: transparent; color: #9AA8B3; text-align: left; display: flex; flex-direction: column; justify-content: center; gap: 3px">
+<span style="font-size: 14px; font-weight: 600">Play</span>
+<span style="font-size: 12px">Launches in Dolphin</span>
+</button>
+<button disabled style="min-height: 60px; padding: 10px 16px; border: 1px dashed #3A4852; border-radius: 12px; background: transparent; color: #9AA8B3; text-align: left; display: flex; flex-direction: column; justify-content: center; gap: 3px">
+<span style="font-size: 14px; font-weight: 600">Back up memory card</span>
+<span style="font-size: 12px">Copies saves to Drive</span>
+</button>
+<button disabled style="min-height: 60px; padding: 10px 16px; border: 1px dashed #3A4852; border-radius: 12px; background: transparent; color: #9AA8B3; text-align: left; display: flex; flex-direction: column; justify-content: center; gap: 3px">
+<span style="font-size: 14px; font-weight: 600">Save states</span>
+<span style="font-size: 12px">Browse, sync and restore slots</span>
+</button>
+<button disabled style="min-height: 60px; padding: 10px 16px; border: 1px dashed #3A4852; border-radius: 12px; background: transparent; color: #9AA8B3; text-align: left; display: flex; flex-direction: column; justify-content: center; gap: 3px">
+<span style="font-size: 14px; font-weight: 600">Controls for this game</span>
+<span style="font-size: 12px">Starts from the Dolphin default</span>
+</button>
+</div>
+</div>
+
+</div>
+</div>
+
+<div style="height: 48px; flex: none; box-sizing: border-box; padding: 0 40px; display: flex; align-items: center; justify-content: flex-end; gap: 24px; border-top: 1px solid #25313A; font-size: 13px; color: #C3CED6">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 22px; height: 22px; border-radius: 50%; background: #E8EEF2; color: #10161B; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">A</span>Set up Dolphin</span>
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 22px; height: 22px; border-radius: 50%; background: #E8EEF2; color: #10161B; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">X</span>Download</span>
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 22px; height: 22px; border-radius: 50%; background: #E8EEF2; color: #10161B; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">B</span>Back</span>
+</div>
+
+</div>
+</body>
+</html>

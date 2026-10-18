@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Romshelf: ROM page</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+a{color:#3DD6B5}a:hover{color:#7BE8D0}
+</style>
+</head>
+<body>
+<!-- Reference markup for a 1280x800 Steam Deck screen. Static: no behaviour. Accent colour is #3DD6B5. -->
+<div style="width: 1280px; height: 800px; box-sizing: border-box; background: #10161B; color: #E8EEF2; font-family: 'Sora', sans-serif; display: flex; flex-direction: column; overflow: hidden">
+
+<div style="flex-grow: 1; min-height: 0; display: flex; gap: 40px; padding: 28px 40px">
+
+<div style="width: 340px; flex: none; display: flex; flex-direction: column; gap: 18px">
+<a href="01-library.html" style="height: 44px; display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; color: #C3CED6; text-decoration: none">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"></path></svg>
+<span>Library</span>
+</a>
+<div style="height: 280px; border-radius: 16px; background: #1F6B62; display: flex; flex-direction: column; justify-content: space-between; padding: 20px; box-sizing: border-box">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #D6FFF6">GBA</span>
+<span style="font-size: 88px; font-weight: 700; line-height: 0.9; color: #FFFFFF; letter-spacing: -0.04em">TW</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<h1 style="margin: 0; font-size: 38px; font-weight: 700; line-height: 1.05; letter-spacing: -0.03em">Tidewalker</h1>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #9AA8B3">roms / gba / tidewalker.gba</span>
+<span style="font-size: 13px; color: #C3CED6">Runs in RetroArch with the mGBA core</span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: auto">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 12px; color: #9AA8B3">Size</span>
+<span style="font-size: 15px; font-weight: 600">14.8 MB</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 12px; color: #9AA8B3">Location</span>
+<span style="font-size: 15px; font-weight: 600">On Deck</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 12px; color: #9AA8B3">Save backup</span>
+<span style="font-size: 15px; font-weight: 600">Today 3:42 PM</span>
+</div>
+</div>
+</div>
+
+<div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 22px">
+
+<div style="display: flex; gap: 12px">
+<button style="flex-grow: 1; height: 56px; border: none; border-radius: 12px; background: #3DD6B5; color: #0B1A17; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 10px">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4v16l13-8z"></path></svg>
+<span>Play</span>
+</button>
+<button style="height: 56px; padding: 0 20px; border: 1px solid #2E3B45; border-radius: 12px; background: #1D2830; font-size: 14px; font-weight: 600">Download again</button>
+<button style="height: 56px; padding: 0 20px; border: 1px solid #6B3A36; border-radius: 12px; background: #1D2830; color: #FF9C8F; font-size: 14px; font-weight: 600">Delete…</button>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 12px; font-weight: 600; color: #9AA8B3; letter-spacing: 0.06em; text-transform: uppercase">mGBA functions</span>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+<button style="min-height: 64px; padding: 10px 16px; border: 1px solid #2E3B45; border-radius: 12px; background: #1D2830; text-align: left; display: flex; flex-direction: column; justify-content: center; gap: 3px">
+<span style="font-size: 14px; font-weight: 600">Back up save data</span>
+<span style="font-size: 12px; color: #9AA8B3">Last backup today 3:42 PM</span>
+</button>
+<button style="min-height: 64px; padding: 10px 16px; border: 1px solid #2E3B45; border-radius: 12px; background: #1D2830; text-align: left; display: flex; flex-direction: column; justify-content: center; gap: 3px">
+<span style="font-size: 14px; font-weight: 600">Restore save from Drive</span>
+<span style="font-size: 12px; color: #9AA8B3">4 versions</span>
+</button>
+<button style="min-height: 64px; padding: 10px 16px; border: 1px solid #2E3B45; border-radius: 12px; background: #1D2830; text-align: left; display: flex; flex-direction: column; justify-content: center; gap: 3px">
+<span style="font-size: 14px; font-weight: 600">Save states</span>
+<span style="font-size: 12px; color: #9AA8B3">3 slots used</span>
+</button>
+</div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+
+<div style="background: #172027; border: 1px solid #25313A; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: baseline; justify-content: space-between">
+<h2 style="margin: 0; font-size: 18px; font-weight: 600">Controls</h2>
+<span style="font-size: 12px; color: #9AA8B3">2 buttons differ from default</span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; background: #10161B; border-radius: 12px">
+<button style="height: 44px; border: none; border-radius: 9px; background: transparent; color: #C3CED6; font-size: 13px; font-weight: 500">mGBA default</button>
+<button style="height: 44px; border: none; border-radius: 9px; background: #E8EEF2; color: #10161B; font-size: 13px; font-weight: 600">Custom for this game</button>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px; font-size: 13px">
+<div style="display: flex; align-items: center; gap: 10px"><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; border: 1px solid #3A4852; border-radius: 6px; padding: 3px 8px">L4</span><span>Fast forward</span><span style="margin-left: auto; color: #9AA8B3">default: not bound</span></div>
+<div style="display: flex; align-items: center; gap: 10px"><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; border: 1px solid #3A4852; border-radius: 6px; padding: 3px 8px">R4</span><span>Rewind</span><span style="margin-left: auto; color: #9AA8B3">default: not bound</span></div>
+</div>
+<div style="display: flex; gap: 8px; margin-top: 4px">
+<a href="03-controls.html" style="flex-grow: 1; height: 44px; border: 1px solid #3A4852; border-radius: 10px; color: #E8EEF2; font-size: 14px; font-weight: 600; text-decoration: none; display: flex; align-items: center; justify-content: center">Edit mapping</a>
+<button style="height: 44px; padding: 0 16px; border: none; border-radius: 10px; background: transparent; color: #C3CED6; font-size: 14px; font-weight: 500">Reset</button>
+</div>
+</div>
+
+<div style="background: #172027; border: 1px solid #25313A; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: baseline; justify-content: space-between">
+<h2 style="margin: 0; font-size: 18px; font-weight: 600">Steam shortcut</h2>
+<span style="font-size: 12px; font-weight: 600; color: #3DD6B5">In your library</span>
+</div>
+<div style="display: flex; align-items: center; gap: 14px">
+<div style="width: 60px; height: 90px; flex: none; border-radius: 8px; background: #1F6B62; display: flex; align-items: flex-end; padding: 6px; box-sizing: border-box"><span style="font-size: 18px; font-weight: 700; color: #FFFFFF">TW</span></div>
+<div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
+<span style="font-size: 15px; font-weight: 600">Tidewalker</span>
+<span style="font-size: 12px; color: #9AA8B3">Capsule, hero and icon set · logo missing</span>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 12px; color: #9AA8B3">Steam runs</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; padding: 10px 12px; background: #10161B; border-radius: 8px; color: #E8EEF2">romshelf launch --id gba-7f3a21c0</span>
+</div>
+<div style="display: flex; gap: 8px; margin-top: 4px">
+<a href="04-steam-shortcut.html" style="flex-grow: 1; height: 44px; border: 1px solid #3A4852; border-radius: 10px; color: #E8EEF2; font-size: 14px; font-weight: 600; text-decoration: none; display: flex; align-items: center; justify-content: center">Edit shortcut</a>
+<button style="height: 44px; padding: 0 16px; border: none; border-radius: 10px; background: transparent; color: #C3CED6; font-size: 14px; font-weight: 500">Remove</button>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+
+<div style="height: 48px; flex: none; box-sizing: border-box; padding: 0 40px; display: flex; align-items: center; justify-content: flex-end; gap: 24px; border-top: 1px solid #25313A; font-size: 13px; color: #C3CED6">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 22px; height: 22px; border-radius: 50%; background: #E8EEF2; color: #10161B; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">A</span>Select</span>
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 22px; height: 22px; border-radius: 50%; background: #E8EEF2; color: #10161B; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">Y</span>Back up save</span>
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 22px; height: 22px; border-radius: 50%; background: #E8EEF2; color: #10161B; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">B</span>Back</span>
+</div>
+
+</div>
+</body>
+</html>
