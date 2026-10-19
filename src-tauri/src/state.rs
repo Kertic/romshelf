@@ -5,7 +5,9 @@ use romshelf_core::emulators::setup::{self, SetupStep};
 use romshelf_core::emulators::{EmulatorAdapter, Registry, RetroArch};
 use romshelf_core::http::{HttpTransport, ReqwestTransport};
 use romshelf_core::paths::Paths;
+use romshelf_core::process::CommandSpec;
 use romshelf_core::process::{FlatpakRunner, PackageRunner, ProcessRunner, SystemProcessRunner};
+use romshelf_core::saves::{self, SaveChoice};
 use romshelf_core::Result;
 use romshelf_testkit::connection::{simulate_browser, FakeConnection};
 use romshelf_testkit::{FakeHttp, FakePackageRunner, FakeProcessRunner};
@@ -56,6 +58,10 @@ pub struct AppState {
     pub http: Arc<dyn HttpTransport>,
     /// Emulator ids whose setup is running.
     pub setups: Mutex<Vec<String>>,
+    /// This machine's name in save backups.
+    pub device: String,
+    /// Where the answer to a save conflict goes while a launch waits for it.
+    pub save_answer: Mutex<Option<std::sync::mpsc::Sender<SaveChoice>>>,
     /// Keeps fake mode's temp directory alive for the life of the app.
     _fake_root: Option<tempfile::TempDir>,
 }
@@ -88,6 +94,8 @@ impl AppState {
                 launch_target: Mutex::new(None),
                 http: Arc::new(ReqwestTransport::new()?),
                 setups: Mutex::new(Vec::new()),
+                device: saves::device_name(),
+                save_answer: Mutex::new(None),
                 fake_http: None,
                 paths,
                 _fake_root: None,
@@ -132,6 +140,8 @@ impl AppState {
         for _ in 0..100 {
             fake_process.push_exit(0, Duration::from_secs(5));
         }
+        // ...and writes a save, so backups can be seen.
+        fake_process.during_run(write_fake_save);
         runner.step_delay = Duration::from_millis(300);
         for core in RetroArch.required_cores() {
             let file = RetroArch::core_file(&paths, core);
@@ -165,9 +175,45 @@ impl AppState {
             launch_target: Mutex::new(None),
             http: Arc::new(FakeHttp::default()),
             setups: Mutex::new(Vec::new()),
+            device: "fake-deck".into(),
+            save_answer: Mutex::new(None),
             fake_http: Some(http),
             _fake_root: Some(root),
         })
+    }
+}
+
+/// Fake mode's "emulator" saves where Romshelf told it to: RetroArch's game config names the
+/// folder, Dolphin's memory-card folder is on its command line.
+fn write_fake_save(cmd: &CommandSpec) {
+    let arg_after = |flag: &str| {
+        cmd.args
+            .iter()
+            .position(|a| a == flag)
+            .and_then(|i| cmd.args.get(i + 1))
+    };
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let target = if let Some(configs) = arg_after("--appendconfig") {
+        configs.split('|').nth(1).and_then(|cfg| {
+            let text = std::fs::read_to_string(cfg).ok()?;
+            let line = text.lines().find(|l| l.starts_with("savefile_directory"))?;
+            let dir = line.split('"').nth(1)?;
+            Some(std::path::Path::new(dir).join("game.srm"))
+        })
+    } else {
+        cmd.args
+            .iter()
+            .find_map(|a| a.strip_prefix("Dolphin.Core.GCIFolderAPathOverride="))
+            .map(|dir| std::path::Path::new(dir).join("01-FAKE-save.gci"))
+    };
+    if let Some(file) = target {
+        if let Some(dir) = file.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(file, format!("fake progress at {stamp}"));
     }
 }
 

@@ -28,7 +28,8 @@ pub enum SetupStep {
     Install,
     /// Romshelf's default controls. Recorded as done until stage 7 fills it in.
     DefaultControls,
-    /// Save folders linked for backup. Recorded as done until stage 6 fills it in.
+    /// Romshelf's save folders on the Deck, and `saves/<system>/` and `states/<system>/` in
+    /// Drive for each of the emulator's systems.
     LinkSaves,
 }
 
@@ -232,6 +233,12 @@ pub fn run_setup(
             }
             adapter.prepare_session(ctx.paths)?;
             report = copy_bios(ctx, adapter)?;
+        }
+        if step == SetupStep::LinkSaves {
+            adapter.prepare_session(ctx.paths)?;
+            if let Some((drive, layout)) = ctx.drive {
+                crate::saves::link_folders(drive, layout, adapter)?;
+            }
         }
         record_step(ctx.db, adapter, step)?;
     }

@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  answerSaveQuestion,
   appInfo,
+  backupSave,
   cancelDownload,
+  deleteSaveState,
   connectionStatus,
   download,
   emulators as listEmulators,
@@ -12,10 +15,14 @@ import {
   onTransfer,
   onEmulatorSetup,
   onLaunchUpdate,
+  onSaveBackedUp,
   onUpdateReady,
   play,
   quit,
   removeFromDeck,
+  restoreSave,
+  saveStates,
+  saveVersions,
   setupEmulator,
   storageStatus,
   syncNow,
@@ -25,6 +32,7 @@ import {
   type EmulatorView,
   type ConnectionStatus,
   type LibraryEntry,
+  type SaveChoice,
   type Progress,
   type StorageStatus,
   type SyncStatus,
@@ -38,7 +46,7 @@ import { LaunchWindow, type LaunchState } from "./LaunchWindow";
 import { Home } from "./Home";
 import type { Button } from "./input";
 import { nextTab } from "./library";
-import { RomDialog } from "./RomActions";
+import { RomDialog, type SaveActions } from "./RomActions";
 import { useInput } from "./useInput";
 
 type Screen = "loading" | "first-run" | "home" | "emulators" | "launch" | "spike";
@@ -70,6 +78,13 @@ export function App() {
   const [setups, setSetups] = useState<Record<string, SetupState>>({});
   /** A game being prepared or played, from Play or the launch window. */
   const [launch, setLaunch] = useState<LaunchState | null>(null);
+  /** A one-line toast ("Backed up Tidewalker"), shown for four seconds. */
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
   const setBack = useCallback((b: BackAction | null) => {
     backRef.current = b;
     setBackState(b);
@@ -168,10 +183,15 @@ export function App() {
     let live = true;
     let unlisten: (() => void) | null = null;
     onLaunchUpdate((u) => {
+      if (u.kind === "notice") {
+        if (u.message) setToast(u.message);
+        return;
+      }
       setLaunch((cur) => {
         if (u.kind === "finished") return null;
         const base: LaunchState = cur?.romId === u.rom_id ? cur : { romId: u.rom_id, label: null, percent: null, running: true, error: null };
         if (u.kind === "failed") return { ...base, running: false, error: u.message ?? "The game couldn't start. Try again." };
+        if (u.kind === "question") return { ...base, conflict: u.conflict };
         if (u.kind === "step") return { ...base, label: u.label, percent: null, running: true, error: null };
         return { ...base, percent: u.percent };
       });
@@ -187,6 +207,22 @@ export function App() {
     play(romId).catch((e) =>
       setLaunch({ romId, label: null, percent: null, running: false, error: e?.message ?? `Couldn't start the game: ${String(e)}` }),
     );
+  }, []);
+
+  // Owed backups that reach Drive in the background.
+  useEffect(() => {
+    let live = true;
+    let unlisten: (() => void) | null = null;
+    onSaveBackedUp((m) => setToast(m)).then((un) => (live ? (unlisten = un) : un()));
+    return () => {
+      live = false;
+      unlisten?.();
+    };
+  }, []);
+
+  const answerSave = useCallback((choice: SaveChoice) => {
+    setLaunch((cur) => (cur ? { ...cur, conflict: null } : cur));
+    void answerSaveQuestion(choice);
   }, []);
 
   const startSetup = useCallback((id: string, repair = false) => {
@@ -357,6 +393,18 @@ export function App() {
     return () => clearTimeout(timer);
   }, [screen, entries, tab, syncHint]);
   const dialogEntry = dialogRom ? (entries?.find((e) => e.rom.id === dialogRom) ?? null) : null;
+  // The open game's save actions; a change to its save reads the library again.
+  const dialogSaves = useMemo<SaveActions | null>(() => {
+    if (!dialogRom) return null;
+    const after = <T,>(p: Promise<T>) => p.finally(reloadLibrary);
+    return {
+      backup: () => after(backupSave(dialogRom)),
+      versions: () => saveVersions(dialogRom),
+      restore: (versionId: string) => after(restoreSave(dialogRom, versionId)),
+      states: () => saveStates(dialogRom),
+      deleteState: (slot: string) => deleteSaveState(dialogRom, slot),
+    };
+  }, [dialogRom, reloadLibrary]);
   const hints: Hint[] =
     screen === "spike"
       ? [{ glyph: "B", label: "Hold to go back" }]
@@ -406,6 +454,8 @@ export function App() {
           onPlay={() => startPlay(dialogEntry.rom.id)}
           launch={launch?.romId === dialogEntry.rom.id ? launch : undefined}
           setup={dialogEntry.emulator_id ? setups[dialogEntry.emulator_id] : undefined}
+          saves={dialogSaves ?? undefined}
+          onAnswer={answerSave}
           onClose={closeDialog}
           setBack={setBack}
         />
@@ -415,6 +465,7 @@ export function App() {
           entry={entries?.find((e) => e.rom.id === launch.romId) ?? null}
           launch={launch}
           onRetry={() => startPlay(launch.romId)}
+          onAnswer={answerSave}
           onOpenRomshelf={() => {
             setBack(null);
             setLaunch(null);
@@ -435,6 +486,11 @@ export function App() {
         />
       )}
       {screen === "spike" && <GamepadSpike input={input} holdingB={holdingB} />}
+      {toast && (
+        <div className="toast" role="status">
+          {toast}
+        </div>
+      )}
       <Footer hints={hints} />
     </div>
   );

@@ -121,7 +121,27 @@ pub trait EmulatorAdapter: Send + Sync {
         session: &LaunchSession,
         paths: &Paths,
     ) -> Result<CommandSpec>;
-    fn save_paths(&self, rom: &Rom, paths: &Paths) -> Vec<PathBuf>;
+    /// The folder this game's save files are kept in on the Deck, one folder per game, as
+    /// the emulator is told to use it for games Romshelf starts.
+    fn save_dir(&self, rom: &Rom, paths: &Paths) -> PathBuf;
+    /// The folder of this game's save states, when Romshelf can keep them apart per game.
+    fn state_dir(&self, _rom: &Rom, _paths: &Paths) -> Option<PathBuf> {
+        None
+    }
+    /// `state_dir` gives a folder for every game.
+    fn keeps_states(&self) -> bool {
+        false
+    }
+    /// The plug-in a save was made with, recorded in each backup (RetroArch's core).
+    fn core(&self, _system: System) -> Option<&'static str> {
+        None
+    }
+    /// Prepares this game's save folders before it starts. Saves an earlier Romshelf kept in a
+    /// shared folder are moved into the game's own.
+    fn prepare_game(&self, rom: &Rom, paths: &Paths) -> Result<()> {
+        std::fs::create_dir_all(self.save_dir(rom, paths))?;
+        Ok(())
+    }
     /// Render the merged layout into the emulator's own configuration. Implemented in stage 7.
     fn write_controls(&self, layout: &ControlLayout, rom: &Rom) -> Result<()>;
     fn declared_actions(&self) -> Vec<DeclaredAction>;

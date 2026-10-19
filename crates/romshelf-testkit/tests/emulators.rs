@@ -363,12 +363,8 @@ impl EmulatorAdapter for NeedsBios {
     ) -> romshelf_core::Result<romshelf_core::process::CommandSpec> {
         unreachable!()
     }
-    fn save_paths(
-        &self,
-        _rom: &romshelf_core::model::Rom,
-        _paths: &Paths,
-    ) -> Vec<std::path::PathBuf> {
-        Vec::new()
+    fn save_dir(&self, _rom: &romshelf_core::model::Rom, _paths: &Paths) -> std::path::PathBuf {
+        std::path::PathBuf::new()
     }
     fn write_controls(
         &self,
@@ -438,19 +434,25 @@ fn listing_reports_each_emulator_with_its_systems_and_status() {
 }
 
 #[test]
-fn drive_access_is_read_only_during_setup() {
+fn setup_reads_bios_and_only_adds_its_own_save_folders_to_drive() {
     let r = Rig::new();
     r.drive
         .create_file("scph39001.bin", &r.layout.bios_folders["ps2"], b"x")
         .unwrap();
-    let before = r.drive.start_page_token().unwrap();
+    let before = r.drive.all_files();
     r.runner.push_result(0, "Installation: user\n", "");
     setup::run_setup(&r.ctx(), &NeedsBios, &mut |_| {}).unwrap();
-    assert_eq!(
-        r.drive.start_page_token().unwrap(),
-        before,
-        "nothing written to Drive"
-    );
+    let after = r.drive.all_files();
+    for f in &before {
+        assert!(after.contains(f), "{} changed", f.name);
+    }
+    // "Link saves" adds `saves/ps2/` and `states/ps2/`, and nothing else.
+    let added: Vec<_> = after.iter().filter(|f| !before.contains(f)).collect();
+    assert_eq!(added.len(), 2);
+    for f in added {
+        assert!(f.is_folder() && f.name == "ps2");
+        assert!(f.parents == [r.layout.saves.clone()] || f.parents == [r.layout.states.clone()]);
+    }
 }
 
 #[test]

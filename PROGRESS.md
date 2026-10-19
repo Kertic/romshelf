@@ -1,5 +1,98 @@
 # Progress
 
+## Stage 6: saves and save states (branch `stage-06-saves`, on top of stage 5)
+
+Status: **built; waiting for the on-Deck checks.**
+
+### Built
+
+- **One save folder per game, set by Romshelf for the games it starts:**
+  - **RetroArch:** saves go to `config/romshelf/saves/<rom-id>/` and states to `config/romshelf/states/<rom-id>/`.
+    - Each game gets its own appended config, `config/romshelf/games/<rom-id>.cfg`. The launch passes `--appendconfig "<romshelf.cfg>|<game cfg>"`; RetroArch reads `|`-separated configs in order.
+    - `romshelf.cfg` now also turns off saving next to the ROM and per-core sub-folders. EmuDeck's `retroarch.cfg` has these off already, but a user's own settings might not.
+    - Saves an earlier Romshelf kept in the shared folder (`Kirby - Nightmare in Dream Land (USA).srm` on the Deck) move into the game's folder the first time.
+  - **Dolphin:** memory card A becomes a folder of saves that belongs to the game: `-C Dolphin.Core.SlotA=8 -C Dolphin.Core.GCIFolderAPathOverride=<data/romshelf-user/GC/Romshelf/<rom-id>>`.
+    - The game's saves (`01-GZ2E-gczelda2.gci` for Twilight Princess) move there from the shared `GC/<region>/Card A/` the first time.
+    - The game is identified by the id in its disc header. That's at 0x58 in RVZ and WIA files, after the 32 KB header of a CISO, and at the start of an ISO or GCM.
+- **Backup** (`saves/mod.rs`):
+  - Each backup is its own folder in Drive: `Emulation/saves/<system>/<rom-id>/<UTC time>/`. It holds the files plus `manifest.json` (file names, sizes, MD5s, device, emulator, core, and one hash for the whole save).
+  - The manifest is written last, so a backup that didn't finish uploading is ignored.
+  - Nothing is uploaded when the newest backup already has the same save.
+  - The newest 10 backups are kept (the `save_versions` setting). Older ones go to Drive's trash.
+- **Restore:**
+  1. Downloads the chosen backup and checks every file.
+  2. Backs up the Deck's current save first, unless a kept backup already has it.
+  3. Swaps the folders.
+
+  If the download fails, the Deck's save is untouched. Restoring a save made with another core gives a warning ("This save was made with retroarch (vba_next); retroarch (mgba) may not load it.").
+- **Before each launch,** each game's `save_sync` row (a new table) records the save hash from the last time this Deck and Drive agreed. The Deck's save and Drive's newest backup are each compared with it:
+  - Only Drive's changed (played on another machine): it's restored, and the launch says "Restored the newer save from deck-b".
+  - Only the Deck's changed: nothing to do; it's backed up when the game ends.
+  - Both changed: **Two different saves**, with each side's time and device, and **Use this Deck's** / **Use Drive's** / **Cancel**. Whichever save loses is backed up first.
+  - Drive can't be reached: the game starts with the Deck's save.
+- **After the game,** whatever the exit code, the save is backed up and new or changed save states are mirrored to `Emulation/states/<system>/<rom-id>/`. A failed backup never changes the exit code.
+- **Backups still owed:** a game is marked "backup owed" just before it starts, and the mark is cleared only when a backup succeeds. So when Steam's **Exit game** ends Romshelf, or Drive was unreachable, the backup happens on Romshelf's next run: the next launch, opening Romshelf, or a sync. Nothing is uploaded while a game is running: `launch.lock` names a live process. A lock left behind by an ended Romshelf names a dead one and is ignored.
+- **Save states:**
+  - The game's slots are listed with their times.
+  - Deleting a slot asks first. It's removed from the Deck, and its Drive copy goes to Drive's trash (it's uploaded first if Drive didn't have it).
+  - Slots made on another machine are downloaded before a launch.
+- **Setup's "Link saves" step** now does real work: it creates `saves/<system>/` and `states/<system>/` in Drive for each of the emulator's systems.
+- **Interface:**
+  - The game's dialog has a **Save backup** group: "Backed up Today 3:16 PM from steamdeck", "Not backed up yet", or "Waiting to back up…", with **Back up save data**, **Restore save from Drive…** and **Save states…** (RetroArch games).
+  - **Restore a save** lists date, device and size, with Cancel focused first and "Your current save is backed up first."
+  - The conflict dialog appears both in the launch window and when you press Play.
+  - Toasts: "Backed up Kirby".
+- **`romshelf launch` from Steam with a conflict:** nothing starts until you answer. A launch with no window has no one to ask, so it opens the launch window and asks there.
+
+### Tests
+
+35 new Rust tests in `tests/saves.rs`:
+- Backup then restore is byte-identical.
+- The Drive layout and manifest.
+- An unchanged save makes no new version, and no save uploads nothing.
+- Retention keeps exactly N, the default is 10, and the old ones go to the trash.
+- Two backups in the same second are both kept.
+- Restore backs up the replaced save, an older version can be restored with the newer still listed, a failed restore leaves the Deck's save alone, and a different core gives a warning.
+- Backups touch nothing else in Drive.
+- The conflict matrix (all four combinations), plus both sides reaching the same save, and a backup removed from Drive.
+- The pipeline:
+  - Backup after the game, and after a non-zero exit.
+  - Drive offline at exit: the backup is queued with the exit code unchanged, and uploaded later.
+  - A force-quit launch is backed up at the next run, and owed backups wait while a game runs.
+  - A stale lock is ignored (Linux).
+  - A newer save from another Deck is restored.
+  - Two Decks taking turns lose nothing and are never asked.
+  - A conflict with no window starts nothing; Keep, Use Drive's and Cancel each do what they say.
+  - Offline at the start still plays.
+- Setup links the Drive folders.
+- RetroArch's per-game folders and config, and moving saves in from the shared folder.
+- Dolphin's game id from ISO, RVZ, WIA, CISO (and none from GCZ), and its per-game memory-card folder.
+- Save states mirrored, fetched, listed and deleted, and a Deck-only state uploaded before deleting.
+
+Also 2 unit tests (UTC folder names, the save hash), 13 UI tests (time wording, the save backup line, backup outcomes, the restore list, core warning, empty list, save states and delete, the conflict dialog in all three places), and updated stage 4 and 5 tests (setup now adds only its own save folders to Drive; the new RetroArch and Dolphin command lines).
+
+### Choices made
+
+- **"Only Drive changed" restores without asking.** The stage file says both "offer restore (default yes)" and "no prompt appears when only one side changed". Restoring is safe: the save it replaces is already in Drive, since it's the one both last agreed on. So Romshelf restores and says so, and only asks about a real conflict.
+- **Saves stay separate from EmuDeck's.** Games started from Romshelf use Romshelf's folders, and EmuDeck's saves on the SD card aren't read or changed. A save made through EmuDeck or ES-DE doesn't carry over to Romshelf, and the other way round.
+- **Dolphin's save states aren't kept yet.** Dolphin names them by game id in one shared `StateSaves/` folder, with no setting to separate them per game. GameCube memory-card saves are backed up. RetroArch states are mirrored.
+- **Save files are kept flat:** the files in the game's folder, not sub-folders. Neither emulator writes sub-folders there.
+- **The machine's name** in each backup is `/etc/hostname` ("steamdeck").
+
+### Confirm (on the Deck)
+
+- RetroArch reads both files given to `--appendconfig` joined with `|`, so saves land in `saves/<rom-id>/`.
+- Dolphin 2407 uses `GCIFolderAPathOverride`. Checked so far: the setting name exists in the Deck's `dolphin-emu` binary, and Twilight Princess's RVZ header has `GZ2E01` at 0x58.
+
+### On-Deck checklist
+
+- [ ] Play Kirby, save in game, quit with View + Menu: the game's dialog shows a new "Backed up" time, and `Emulation/saves/gba/<rom-id>/<time>/` exists in Drive with the `.srm` and `manifest.json`.
+- [ ] Play Twilight Princess: your existing save is still there (moved into Romshelf's per-game card folder). Save, quit: a backup with `01-GZ2E-gczelda2.gci` appears in Drive.
+- [ ] Delete the local save (`~/.var/app/org.libretro.RetroArch/config/romshelf/saves/<rom-id>/`), then **Restore save from Drive…** and pick the newest. Launch: progress is intact.
+- [ ] Restore an older version: the game shows the older progress, and the newer version is still in the list.
+- [ ] Airplane mode: play and quit. The dialog says "Waiting to back up". Reconnect and open Romshelf (or sync): the backup uploads and a "Backed up …" toast shows.
+- [ ] Quit a game with Steam button → **Exit game**: the next time Romshelf opens, the save is backed up.
+
 ## Stage 5: launch pipeline (branch `stage-05-launch-pipeline`, on top of stage 4)
 
 Status: **on-Deck checks passed 2026-10-19.**
