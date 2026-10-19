@@ -129,22 +129,11 @@ pub fn run() -> i32 {
                 &mut std::io::stderr(),
             )
         }
-        Some(Command::Delete(args)) => {
-            let setup = Paths::for_app().and_then(|paths| {
-                let conn = Connection::real(&paths)?;
-                let db = Database::open(&paths.db_file())?;
-                Ok((paths, conn, db))
-            });
+        Some(Command::Remove { id }) => {
+            let setup =
+                Paths::for_app().and_then(|paths| Ok((Database::open(&paths.db_file())?, paths)));
             match setup {
-                Ok((paths, conn, db)) => library_cli::delete(
-                    &db,
-                    conn.drive.as_ref(),
-                    &paths,
-                    &args.id,
-                    &args.scope,
-                    !args.delete_save_backups,
-                    &mut std::io::stdout(),
-                ),
+                Ok((db, paths)) => library_cli::remove(&db, &paths, &id, &mut std::io::stdout()),
                 Err(e) => {
                     eprintln!("{}", UiError::from(e).message);
                     1
@@ -509,32 +498,16 @@ fn cancel_download(app: tauri::AppHandle, rom_id: String) -> Result<(), UiError>
     Ok(())
 }
 
-/// Deletes from this Deck, from Drive (to Drive's trash) or both.
+/// Removes the downloaded copy from this Deck. Drive is never touched.
 #[tauri::command]
-async fn delete_rom(
-    app: tauri::AppHandle,
-    rom_id: String,
-    scope: transfer::DeleteScope,
-    keep_save_backups: bool,
-) -> Result<(), UiError> {
+fn remove_from_deck(app: tauri::AppHandle, rom_id: String) -> Result<(), UiError> {
     let id = parse_rom_id(&rom_id)?;
-    let done = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    {
         let state = app.state::<AppState>();
         let db = state.db.lock().map_err(internal)?;
-        transfer::delete(
-            &db,
-            state.connection.drive.as_ref(),
-            &state.paths,
-            &id,
-            scope,
-            keep_save_backups,
-        )
-        .map_err(UiError::from)
-    })
-    .await
-    .map_err(internal)??;
-    let _ = done.emit("library-changed", ());
+        transfer::remove_from_deck(&db, &state.paths, &id)?;
+    }
+    let _ = app.emit("library-changed", ());
     Ok(())
 }
 
@@ -609,7 +582,7 @@ fn run_interface() -> i32 {
             sync_now,
             download,
             cancel_download,
-            delete_rom,
+            remove_from_deck,
             storage_status,
             quit
         ])

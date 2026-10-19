@@ -195,8 +195,6 @@ export type TransferEvent =
   | ({ kind: "progress"; rom_id: string } & Progress)
   | { kind: "finished"; rom_id: string; ok: boolean; message: string | null };
 
-export type DeleteScope = "deck" | "drive" | "both";
-
 export interface StorageStatus {
   root: string;
   available: boolean;
@@ -212,8 +210,9 @@ export async function cancelDownload(romId: string): Promise<void> {
   if (inTauri()) await invoke("cancel_download", { romId });
 }
 
-export async function deleteRom(romId: string, scope: DeleteScope, keepSaveBackups: boolean): Promise<void> {
-  if (inTauri()) await invoke("delete_rom", { romId, scope, keepSaveBackups });
+/** Removes the downloaded copy from this Deck. Drive is never touched. */
+export async function removeFromDeck(romId: string): Promise<void> {
+  if (inTauri()) await invoke("remove_from_deck", { romId });
 }
 
 export async function storageStatus(): Promise<StorageStatus> {

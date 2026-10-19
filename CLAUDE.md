@@ -11,7 +11,7 @@ Steam Deck app that manages emulation from one place. Full brief: `docs/kit/00-I
 
 ## Fixed decisions (ask before changing)
 
-1. One binary, `romshelf`. No args → full-screen UI. Subcommands (`launch`, `sync`, `doctor`, `auth`, `steam`, `update`, `download`, `delete`, `storage`) run headless.
+1. One binary, `romshelf`. No args → full-screen UI. Subcommands (`launch`, `sync`, `doctor`, `auth`, `steam`, `update`, `download`, `remove`, `storage`) run headless.
 2. Tauri 2; all logic in Rust; front end React + Vite + TypeScript, plain CSS with custom-property tokens, no component library.
 3. All logic in `crates/romshelf-core` (no Tauri dependency). `src-tauri` and the CLI are thin layers.
 4. Drive API v3 directly with the user's own desktop client ID, full `drive` scope, loopback + PKCE sign-in in the system browser.
@@ -52,6 +52,7 @@ Other env flags: `ROMSHELF_WINDOWED=1` (no full screen), `ROMSHELF_FULLSCREEN=1`
 
 ## Rules
 
+- **Romshelf never deletes, moves, renames or rewrites the user's ROM files in Drive.** The user manages Drive; Romshelf reads ROMs from it and only writes folders it created and its own files (`.romshelf/`, and later `saves/` and `states/`). "Delete" in the interface means removing the copy on the Deck. (The owner's decision, 2026-10-19, replacing stage 3's "From Drive" and "From both" scopes.)
 - Tests never touch a real Google Drive, Steam directory or emulator config. Fakes and temp dirs only.
 - Never commit a client ID, secret, token or API key (`romshelf auth set-client` stores them outside the repo).
 - Destructive actions (Drive delete, save overwrite, `shortcuts.vdf` write) take a backup or go to trash first, with a test proving nothing else was touched.

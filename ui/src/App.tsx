@@ -3,7 +3,6 @@ import {
   appInfo,
   cancelDownload,
   connectionStatus,
-  deleteRom,
   download,
   library,
   onLibraryChanged,
@@ -11,13 +10,13 @@ import {
   onTransfer,
   onUpdateReady,
   quit,
+  removeFromDeck,
   storageStatus,
   syncNow,
   syncStatus,
   updateReady,
   type AppInfo,
   type ConnectionStatus,
-  type DeleteScope,
   type LibraryEntry,
   type Progress,
   type StorageStatus,
@@ -56,12 +55,10 @@ export function App() {
   /** The last thing that went wrong with each game's download. */
   const [transferErrors, setTransferErrors] = useState<Record<string, string>>({});
   const [storage, setStorage] = useState<StorageStatus | null>(null);
-
   const setBack = useCallback((b: BackAction | null) => {
     backRef.current = b;
     setBackState(b);
   }, []);
-
   const reloadLibrary = useCallback(() => {
     library()
       .then(setEntries)
@@ -70,7 +67,6 @@ export function App() {
       .then(setStorage)
       .catch(() => {});
   }, []);
-
   const startSync = useCallback(() => {
     setSync((s) => ({ state: "syncing", last_synced_at: s?.last_synced_at ?? null, message: null }));
     syncNow()
@@ -129,7 +125,6 @@ export function App() {
       unlisten?.();
     };
   }, []);
-
   const startDownload = useCallback(
     (romId: string) => {
       setTransferErrors((errs) => {
@@ -148,7 +143,6 @@ export function App() {
     },
     [reloadLibrary],
   );
-
   const closeDialog = useCallback(() => {
     const opener = dialogRom;
     setDialogRom(null);
@@ -158,7 +152,6 @@ export function App() {
       if (opener) document.querySelector<HTMLElement>(`[data-rom-id="${opener}"]`)?.focus();
     });
   }, [dialogRom, setBack]);
-
   const openLibrary = useCallback(() => {
     Promise.all([connectionStatus(), library(), storageStatus()])
       .then(([s, l, st]) => {
@@ -174,7 +167,6 @@ export function App() {
         setScreen("home");
       });
   }, [startSync]);
-
   useEffect(() => {
     Promise.all([appInfo(), connectionStatus()])
       .then(([i, s]) => {
@@ -199,7 +191,6 @@ export function App() {
     document.addEventListener("focusin", syncHint);
     return () => document.removeEventListener("focusin", syncHint);
   }, [syncHint]);
-
   const onPress = useCallback(
     (b: Button, from: "pad" | "keyboard") => {
       if (b === "up" || b === "down" || b === "left" || b === "right") {
@@ -232,7 +223,6 @@ export function App() {
     const t = setTimeout(() => setScreen("home"), HOLD_TO_LEAVE_MS);
     return () => clearTimeout(t);
   }, [holdingB]);
-
   const focusedTab = useRef<string | null>(null);
   useEffect(() => {
     if (screen !== "home") {
@@ -251,9 +241,7 @@ export function App() {
     });
     return () => clearTimeout(timer);
   }, [screen, entries, tab, syncHint]);
-
   const dialogEntry = dialogRom ? (entries?.find((e) => e.rom.id === dialogRom) ?? null) : null;
-
   const hints: Hint[] =
     screen === "spike"
       ? [{ glyph: "B", label: "Hold to go back" }]
@@ -263,7 +251,6 @@ export function App() {
           ...(back ? [{ glyph: "B", label: back.label }] : []),
           { glyph: "✥", label: "Move" },
         ];
-
   return (
     <div className="frame">
       {screen === "loading" && <main className="content" />}
@@ -294,8 +281,8 @@ export function App() {
           error={transferErrors[dialogEntry.rom.id] ?? null}
           onDownload={() => startDownload(dialogEntry.rom.id)}
           onCancel={() => void cancelDownload(dialogEntry.rom.id).then(reloadLibrary)}
-          onDelete={async (scope: DeleteScope, keep: boolean) => {
-            await deleteRom(dialogEntry.rom.id, scope, keep);
+          onRemove={async () => {
+            await removeFromDeck(dialogEntry.rom.id);
             closeDialog();
             reloadLibrary();
           }}

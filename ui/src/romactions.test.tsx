@@ -32,7 +32,7 @@ function setup(location: LocationState, extra: Partial<Parameters<typeof RomDial
     entry: entry(location),
     onDownload: vi.fn(),
     onCancel: vi.fn(),
-    onDelete: vi.fn(async () => {}),
+    onRemove: vi.fn(async () => {}),
     onClose: vi.fn(),
     setBack: vi.fn(),
     ...extra,
@@ -74,13 +74,13 @@ describe("game actions", () => {
   it("offers Download again for a game on the Deck", () => {
     setup({ state: "on_deck" });
     expect(button("Download again")).toBeTruthy();
-    expect(button("Delete…")).toBeTruthy();
+    expect(button("Remove from Deck…")).toBeTruthy();
   });
 
   it("shows progress and a cancel while downloading", () => {
     const p = setup({ state: "downloading", percent: 5 }, { progress: { bytes: 50, total: 100, rate: 0 } });
     expect(screen.getByText("50%")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Delete…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove from Deck…" })).toBeNull();
     fireEvent.click(button("Cancel download"));
     expect(p.onCancel).toHaveBeenCalled();
   });
@@ -91,58 +91,45 @@ describe("game actions", () => {
   });
 });
 
-describe("delete dialog", () => {
-  it("lists the three scopes with Cancel first, and keeps save backups by default", async () => {
+describe("remove from Deck", () => {
+  it("is only offered for a game on the Deck, and never offers Drive", () => {
+    setup({ state: "drive_only" });
+    expect(screen.queryByRole("button", { name: /Remove/ })).toBeNull();
+    expect(screen.queryByText(/Drive's trash/)).toBeNull();
+  });
+
+  it("asks once with Cancel first, says Drive keeps the game, then removes", async () => {
     const p = setup({ state: "on_deck" });
-    await act(async () => fireEvent.click(button("Delete…")));
-    expect(screen.getByRole("heading", { name: "Delete Kirby?" })).toBeTruthy();
-    const radios = screen.getAllByRole("radio");
-    expect(radios.map((r) => r.textContent)).toEqual([
-      "From this Deck (keeps it in Drive)●",
-      "From Drive (moves it to Drive's trash)○",
-      "From both○",
-    ]);
-    // From this Deck: no save-backup question.
-    expect(screen.queryByRole("checkbox")).toBeNull();
-    const actions = screen.getAllByRole("button").filter((b) => ["Cancel", "Delete"].includes(b.textContent ?? ""));
-    expect(actions.map((b) => b.textContent)).toEqual(["Cancel", "Delete"]);
+    await act(async () => fireEvent.click(button("Remove from Deck…")));
+    expect(screen.getByRole("heading", { name: "Remove Kirby from this Deck?" })).toBeTruthy();
+    expect(screen.getByText(/stays in your Google Drive/)).toBeTruthy();
+    expect(screen.getByText(/frees 16 MB/)).toBeTruthy();
+    // No choices to select: nothing but the focused button can look selected.
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+    const actions = screen.getAllByRole("button").map((b) => b.textContent);
+    expect(actions).toEqual(["Cancel", "Remove from Deck"]);
     expect(p.setBack).toHaveBeenLastCalledWith(expect.objectContaining({ label: "Back" }));
-
-    fireEvent.click(screen.getByRole("radio", { name: /From both/ }));
-    const keep = screen.getByRole("checkbox", { name: /Keep save backups/ });
-    expect(keep.getAttribute("aria-checked")).toBe("true");
-    fireEvent.click(keep);
-    await act(async () => fireEvent.click(button("Delete")));
-    expect(p.onDelete).toHaveBeenCalledWith("both", false);
+    await act(async () => fireEvent.click(button("Remove from Deck")));
+    expect(p.onRemove).toHaveBeenCalledTimes(1);
   });
 
-  it("can't delete from the Deck what isn't on it", async () => {
-    const p = setup({ state: "drive_only" });
-    await act(async () => fireEvent.click(button("Delete…")));
-    expect((screen.getByRole("radio", { name: /From this Deck/ }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("radio", { name: /From both/ }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByRole("radio", { name: /From Drive/ }).getAttribute("aria-checked")).toBe("true");
-    await act(async () => fireEvent.click(button("Delete")));
-    expect(p.onDelete).toHaveBeenCalledWith("drive", true);
-  });
-
-  it("Cancel goes back without deleting", async () => {
+  it("Cancel goes back without removing", async () => {
     const p = setup({ state: "on_deck" });
-    await act(async () => fireEvent.click(button("Delete…")));
+    await act(async () => fireEvent.click(button("Remove from Deck…")));
     await act(async () => fireEvent.click(button("Cancel")));
-    expect(p.onDelete).not.toHaveBeenCalled();
+    expect(p.onRemove).not.toHaveBeenCalled();
     expect(button("Download again")).toBeTruthy();
   });
 
-  it("shows why a delete failed and stays open", async () => {
-    const onDelete = vi.fn(async () => {
-      throw { kind: "offline", message: "Couldn't reach Google. Check the Deck's internet connection and try again." };
+  it("shows why removing failed and stays open", async () => {
+    const onRemove = vi.fn(async () => {
+      throw { kind: "error", message: "Kirby is downloading. Cancel the download, then remove it." };
     });
-    setup({ state: "on_deck" }, { onDelete });
-    await act(async () => fireEvent.click(button("Delete…")));
-    fireEvent.click(screen.getByRole("radio", { name: /From Drive/ }));
-    await act(async () => fireEvent.click(button("Delete")));
-    expect(screen.getByText(/Couldn't reach Google/)).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Delete Kirby?" })).toBeTruthy();
+    setup({ state: "on_deck" }, { onRemove });
+    await act(async () => fireEvent.click(button("Remove from Deck…")));
+    await act(async () => fireEvent.click(button("Remove from Deck")));
+    expect(screen.getByText(/Cancel the download, then remove it/)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Remove Kirby from this Deck?" })).toBeTruthy();
   });
 });

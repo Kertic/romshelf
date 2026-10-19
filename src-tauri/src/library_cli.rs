@@ -1,12 +1,11 @@
 //! `romshelf download`, `romshelf delete` and `romshelf storage`.
 
 use romshelf_core::db::Database;
-use romshelf_core::drive::DriveClient;
 use romshelf_core::model::RomId;
 use romshelf_core::paths::Paths;
 use romshelf_core::settings::LocalSettings;
 use romshelf_core::storage::{self, human_size, DiskSpace};
-use romshelf_core::transfer::{self, DeleteScope, Downloader, Event};
+use romshelf_core::transfer::{self, Downloader, Event};
 use romshelf_core::{Error, Result};
 use std::io::Write;
 use std::path::Path;
@@ -71,32 +70,16 @@ pub fn download(
     finish(result, out)
 }
 
-pub fn delete(
-    db: &Database,
-    drive: &dyn DriveClient,
-    paths: &Paths,
-    id: &str,
-    scope: &str,
-    keep_save_backups: bool,
-    out: &mut dyn Write,
-) -> i32 {
+/// Removes a downloaded ROM from this Deck. Drive is never touched.
+pub fn remove(db: &Database, paths: &Paths, id: &str, out: &mut dyn Write) -> i32 {
     let result = (|| {
         let id = rom_id(id)?;
-        let scope = DeleteScope::parse(scope)
-            .ok_or_else(|| Error::Invalid(format!("Unknown scope {scope}")))?;
         let name = db
             .rom(&id)?
             .ok_or_else(|| Error::NotFound(format!("ROM {id}")))?
             .display_name;
-        transfer::delete(db, drive, paths, &id, scope, keep_save_backups)?;
-        let what = match scope {
-            DeleteScope::Deck => "from this Deck. It's still in Drive",
-            DeleteScope::Drive => {
-                "from Drive (it's in Drive's trash). The copy on this Deck is kept"
-            }
-            DeleteScope::Both => "from this Deck and from Drive (it's in Drive's trash)",
-        };
-        writeln!(out, "Deleted {name} {what}.")?;
+        transfer::remove_from_deck(db, paths, &id)?;
+        writeln!(out, "Removed {name} from this Deck. It's still in Drive.")?;
         Ok(())
     })();
     finish(result, out)
@@ -157,7 +140,7 @@ pub fn storage(
 mod tests {
     use super::*;
     use romshelf_core::drive::scaffold;
-    use romshelf_core::drive::ROOT;
+    use romshelf_core::drive::{DriveClient, ROOT};
     use romshelf_core::model::LocationState;
     use romshelf_core::sync::{self, SyncContext};
     use romshelf_testkit::{FakeClock, FakeDrive, FixedSpace};
@@ -200,7 +183,7 @@ mod tests {
     }
 
     #[test]
-    fn download_then_delete_from_the_command_line() {
+    fn download_then_remove_from_the_command_line() {
         let r = rig();
         let space = FixedSpace::new(u64::MAX / 2);
         let cancel = AtomicBool::new(false);
@@ -221,15 +204,7 @@ mod tests {
 
         let mut out = Vec::new();
         let db = r.db.lock().unwrap();
-        let code = delete(
-            &db,
-            &r.drive,
-            &r.paths,
-            r.rom.as_str(),
-            "deck",
-            true,
-            &mut out,
-        );
+        let code = remove(&db, &r.paths, r.rom.as_str(), &mut out);
         assert_eq!(code, 0);
         assert!(String::from_utf8(out)
             .unwrap()
@@ -245,10 +220,7 @@ mod tests {
         let r = rig();
         let mut out = Vec::new();
         let db = r.db.lock().unwrap();
-        assert_eq!(
-            delete(&db, &r.drive, &r.paths, "kirby", "deck", true, &mut out),
-            1
-        );
+        assert_eq!(remove(&db, &r.paths, "kirby", &mut out), 1);
         assert!(String::from_utf8(out).unwrap().contains("gba-0a1b2c3d"));
     }
 

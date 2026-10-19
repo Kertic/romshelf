@@ -33,8 +33,11 @@ pub enum Command {
         /// ROM id, for example `gba-0a1b2c3d`.
         id: String,
     },
-    /// Delete a ROM from this Deck, from Drive (to Drive's trash), or both.
-    Delete(DeleteArgs),
+    /// Remove a downloaded ROM from this Deck. Drive is never touched.
+    Remove {
+        /// ROM id, for example `gba-0a1b2c3d`.
+        id: String,
+    },
     /// Show where ROMs are kept, or move them to another folder (an SD card).
     Storage {
         /// Folder to keep ROMs in; downloaded ROMs are moved there.
@@ -69,17 +72,6 @@ pub enum AuthCommand {
     Status,
 }
 
-#[derive(Debug, Args, PartialEq, Eq)]
-pub struct DeleteArgs {
-    /// ROM id, for example `gba-0a1b2c3d`.
-    pub id: String,
-    #[arg(long, value_parser = ["deck", "drive", "both"])]
-    pub scope: String,
-    /// Also delete the ROM's save backups (kept by default).
-    #[arg(long)]
-    pub delete_save_backups: bool,
-}
-
 #[derive(Debug, Args, PartialEq, Eq, Default)]
 pub struct UpdateArgs {
     /// Put the previous version back.
@@ -108,7 +100,7 @@ impl Command {
             Command::Steam(_) => "steam",
             Command::Update(_) => "update",
             Command::Download { .. } => "download",
-            Command::Delete(_) => "delete",
+            Command::Remove { .. } => "remove",
             Command::Storage { .. } => "storage",
         }
     }
@@ -202,14 +194,10 @@ mod tests {
             })
         );
         assert_eq!(
-            parse(&["delete", "gba-00000001", "--scope", "both"])
-                .unwrap()
-                .command,
-            Some(Command::Delete(DeleteArgs {
-                id: "gba-00000001".into(),
-                scope: "both".into(),
-                delete_save_backups: false
-            }))
+            parse(&["remove", "gba-00000001"]).unwrap().command,
+            Some(Command::Remove {
+                id: "gba-00000001".into()
+            })
         );
         assert_eq!(
             parse(&["storage", "--set", "/run/media/deck/SD/Romshelf"])
@@ -247,10 +235,9 @@ mod tests {
         assert!(parse(&["doctor", "--bogus"]).is_err());
         assert!(parse(&["update", "--rollback", "--set-token"]).is_err());
         assert!(parse(&["download"]).is_err());
-        assert!(parse(&["delete", "gba-00000001", "--scope", "everything"]).is_err());
-        assert!(
-            parse(&["delete", "gba-00000001"]).is_err(),
-            "scope is required"
-        );
+        assert!(parse(&["remove"]).is_err());
+        // There is no way to delete from Drive.
+        assert!(parse(&["delete", "gba-00000001"]).is_err());
+        assert!(parse(&["remove", "gba-00000001", "--scope", "drive"]).is_err());
     }
 }

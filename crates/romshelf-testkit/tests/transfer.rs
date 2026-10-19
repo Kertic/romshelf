@@ -7,7 +7,7 @@ use romshelf_core::model::{LocationState, Rom, System};
 use romshelf_core::paths::Paths;
 use romshelf_core::storage;
 use romshelf_core::sync::{self, SyncContext};
-use romshelf_core::transfer::{self, DeleteScope, Downloader, Event, TransferState};
+use romshelf_core::transfer::{self, Downloader, Event, TransferState};
 use romshelf_core::Error;
 use romshelf_testkit::{FakeClock, FakeDrive, FixedSpace};
 use std::collections::BTreeMap;
@@ -295,7 +295,7 @@ fn progress_events_end_at_the_total() {
 }
 
 #[test]
-fn delete_from_deck_leaves_drive_alone() {
+fn removing_from_the_deck_leaves_drive_alone() {
     let r = Rig::new();
     let keep = r.rom(System::Gba, "Keep.gba", 1_000);
     let rom = r.rom(System::Gba, "Kirby.gba", 1_000);
@@ -303,15 +303,7 @@ fn delete_from_deck_leaves_drive_alone() {
     r.download(&rom).unwrap();
     let (files, drive) = r.snapshot();
 
-    transfer::delete(
-        &r.db.lock().unwrap(),
-        &r.drive,
-        &r.paths,
-        &rom.id,
-        DeleteScope::Deck,
-        true,
-    )
-    .unwrap();
+    transfer::remove_from_deck(&r.db.lock().unwrap(), &r.paths, &rom.id).unwrap();
     assert!(!r.local(&rom).exists());
     assert_eq!(r.reload(&rom).location, LocationState::DriveOnly);
     assert_eq!(r.drive.all_files(), drive, "Drive untouched");
@@ -321,87 +313,35 @@ fn delete_from_deck_leaves_drive_alone() {
 }
 
 #[test]
-fn delete_from_drive_trashes_and_keeps_the_local_copy() {
+fn downloading_and_removing_never_change_rom_files_in_drive() {
     let r = Rig::new();
-    let other = r.rom(System::Gba, "Other.gba", 1_000);
-    let rom = r.rom(System::Gba, "Kirby.gba", 1_000);
-    r.download(&rom).unwrap();
-    let (files, drive) = r.snapshot();
-
-    transfer::delete(
-        &r.db.lock().unwrap(),
-        &r.drive,
-        &r.paths,
-        &rom.id,
-        DeleteScope::Drive,
-        true,
-    )
-    .unwrap();
-    assert!(
-        r.drive.get(&rom.drive_file_id).unwrap().trashed,
-        "in Drive's trash"
-    );
-    assert!(r.local(&rom).exists());
-    r.sync();
-    assert_eq!(r.reload(&rom).location, LocationState::Gone);
-    assert_eq!(r.snapshot().0, files, "no local file changed");
-    let changed: Vec<_> = r
+    let rom = r.rom(System::Gba, "Kirby.gba", 50_000);
+    let before: Vec<DriveFile> = r
         .drive
         .all_files()
         .into_iter()
-        .filter(|f| !drive.contains(f))
-        .map(|f| f.id)
+        .filter(|f| f.parents.contains(&r.layout.rom_folders["gba"]))
         .collect();
-    let index_id = r
-        .drive
-        .list(&r.layout.meta)
-        .unwrap()
-        .into_iter()
-        .find(|f| f.name == sync::INDEX_FILE)
-        .map(|f| f.id);
-    assert!(
-        changed
-            .iter()
-            .all(|id| *id == rom.drive_file_id || Some(id) == index_id.as_ref()),
-        "only the ROM (and the shared index) changed in Drive: {changed:?}"
-    );
-    assert!(!r.drive.get(&other.drive_file_id).unwrap().trashed);
-}
-
-#[test]
-fn delete_from_both() {
-    let r = Rig::new();
-    let keep = r.rom(System::Gba, "Keep.gba", 1_000);
-    let rom = r.rom(System::Gba, "Kirby.gba", 1_000);
-    r.download(&keep).unwrap();
     r.download(&rom).unwrap();
-    let (files, _) = r.snapshot();
-    transfer::delete(
-        &r.db.lock().unwrap(),
-        &r.drive,
-        &r.paths,
-        &rom.id,
-        DeleteScope::Both,
-        true,
-    )
-    .unwrap();
-    assert!(r.drive.get(&rom.drive_file_id).unwrap().trashed);
-    assert!(!r.local(&rom).exists());
-    assert_eq!(r.reload(&rom).location, LocationState::Gone);
-    let mut expected = files;
-    expected.remove(&r.local(&rom));
-    assert_eq!(r.snapshot().0, expected);
-    assert!(!r.drive.get(&keep.drive_file_id).unwrap().trashed);
-    assert!(r.local(&keep).exists());
+    transfer::remove_from_deck(&r.db.lock().unwrap(), &r.paths, &rom.id).unwrap();
+    r.download(&rom).unwrap();
+    r.sync();
+    let after: Vec<DriveFile> = r
+        .drive
+        .all_files()
+        .into_iter()
+        .filter(|f| f.parents.contains(&r.layout.rom_folders["gba"]))
+        .collect();
+    assert_eq!(after, before);
 }
 
 #[test]
-fn deleting_from_deck_cancels_a_queued_download() {
+fn removing_cancels_a_queued_download() {
     let r = Rig::new();
     let rom = r.rom(System::Gba, "Kirby.gba", 1_000);
     let db = r.db.lock().unwrap();
     transfer::enqueue_download(&db, &rom.id).unwrap();
-    transfer::delete(&db, &r.drive, &r.paths, &rom.id, DeleteScope::Deck, true).unwrap();
+    transfer::remove_from_deck(&db, &r.paths, &rom.id).unwrap();
     assert!(transfer::pending(&db).unwrap().is_empty());
     assert_eq!(
         db.rom(&rom.id).unwrap().unwrap().location,

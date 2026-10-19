@@ -554,32 +554,6 @@ button:focus {
   gap: 12px;
   margin-top: 6px;
 }
-.button.danger {
-  color: var(--danger);
-  border-color: var(--danger-border);
-}
-.button.danger:disabled {
-  opacity: 0.5;
-}
-.choices {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.choice {
-  font-weight: 500;
-}
-.choice.selected {
-  border-color: var(--accent);
-}
-.choice:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.choice-mark {
-  color: var(--accent);
-  font-size: 16px;
-}
 .progress {
   display: flex;
   flex-direction: column;

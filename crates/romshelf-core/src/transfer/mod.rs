@@ -1,4 +1,4 @@
-//! Downloads from Drive to the Deck, and deleting from either side.
+//! Downloads from Drive to the Deck, and removing them from the Deck again.
 //!
 //! A download writes `<file>.part`, resumes from its length with a ranged request, checks
 //! size and MD5 against what Drive reports, and only then renames into place. The queue lives
@@ -399,70 +399,29 @@ pub fn run_pending(db: &Mutex<Database>, dl: &Downloader, events: &dyn Fn(Event)
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DeleteScope {
-    /// The local copy; Drive keeps the ROM.
-    Deck,
-    /// Drive's copy, moved to Drive's trash; the local copy stays.
-    Drive,
-    Both,
-}
-
-impl DeleteScope {
-    pub fn parse(s: &str) -> Option<DeleteScope> {
-        match s {
-            "deck" => Some(DeleteScope::Deck),
-            "drive" => Some(DeleteScope::Drive),
-            "both" => Some(DeleteScope::Both),
-            _ => None,
-        }
-    }
-}
-
-/// Deletes exactly what was chosen. Drive deletion moves the file to Drive's trash; nothing is
-/// ever deleted permanently. `keep_save_backups` takes effect once save backups exist (stage 6).
-pub fn delete(
-    db: &Database,
-    drive: &dyn DriveClient,
-    paths: &Paths,
-    rom_id: &RomId,
-    scope: DeleteScope,
-    keep_save_backups: bool,
-) -> Result<()> {
-    let _ = keep_save_backups;
+/// Removes the copy on this Deck (and any partial download) to free space. Drive is never
+/// touched: the user manages the files in Drive, and Romshelf only ever reads them.
+pub fn remove_from_deck(db: &Database, paths: &Paths, rom_id: &RomId) -> Result<()> {
     let mut rom = db
         .rom(rom_id)?
         .ok_or_else(|| Error::NotFound(format!("ROM {rom_id}")))?;
-    let deck = matches!(scope, DeleteScope::Deck | DeleteScope::Both);
-    let from_drive = matches!(scope, DeleteScope::Drive | DeleteScope::Both);
-    if deck && state_of(db, rom_id)? == Some(TransferState::Running) {
+    if state_of(db, rom_id)? == Some(TransferState::Running) {
         return Err(Error::Invalid(format!(
-            "{} is downloading. Cancel the download, then delete it.",
+            "{} is downloading. Cancel the download, then remove it.",
             rom.display_name
         )));
     }
-    // Drive first: if that fails (offline), nothing has been removed.
-    if from_drive {
-        match drive.trash(&rom.drive_file_id) {
-            Ok(()) | Err(Error::NotFound(_)) => {}
-            Err(e) => return Err(e),
+    db.remove_transfer(rom_id, KIND)?;
+    let local = paths.rom_file(rom.system, &rom.file_name)?;
+    for path in [part_path(&local), local] {
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
         }
-        rom.location = LocationState::Gone;
     }
-    if deck {
-        db.remove_transfer(rom_id, KIND)?;
-        let local = paths.rom_file(rom.system, &rom.file_name)?;
-        for path in [part_path(&local), local] {
-            match std::fs::remove_file(&path) {
-                Ok(()) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(e.into()),
-            }
-        }
-        if rom.location != LocationState::Gone {
-            rom.location = LocationState::DriveOnly;
-        }
+    if rom.location != LocationState::Gone {
+        rom.location = LocationState::DriveOnly;
     }
     db.upsert_rom(&rom)
 }
