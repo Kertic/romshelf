@@ -15,7 +15,7 @@ use romshelf_core::tokens::TokenStore;
 use romshelf_core::{Error, Result};
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -155,6 +155,21 @@ impl TokenStore for MemoryTokenStore {
     fn delete(&self, key: &str) -> Result<()> {
         self.map.lock().unwrap().remove(key);
         Ok(())
+    }
+}
+
+/// Free space that is whatever the test says.
+pub struct FixedSpace(AtomicU64);
+
+impl FixedSpace {
+    pub fn new(bytes: u64) -> FixedSpace {
+        FixedSpace(AtomicU64::new(bytes))
+    }
+}
+
+impl romshelf_core::storage::DiskSpace for FixedSpace {
+    fn available(&self, _path: &Path) -> Result<u64> {
+        Ok(self.0.load(Ordering::SeqCst))
     }
 }
 

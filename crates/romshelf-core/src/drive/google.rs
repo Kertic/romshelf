@@ -6,6 +6,7 @@ use crate::http::{HttpRequest, HttpResponse, HttpTransport};
 use crate::{Error, Result};
 use serde::Deserialize;
 use serde_json::json;
+use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -80,6 +81,24 @@ impl GoogleDrive {
 
     fn file(&self, build: impl Fn() -> HttpRequest) -> Result<DriveFile> {
         self.call_json::<RawFile>(build).map(RawFile::into_file)
+    }
+}
+
+/// Counts the bytes written through it.
+struct Counting<'a> {
+    inner: &'a mut dyn Write,
+    written: u64,
+}
+
+impl Write for Counting<'_> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let n = self.inner.write(buf)?;
+        self.written += n as u64;
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
     }
 }
 
@@ -389,6 +408,51 @@ impl DriveClient for GoogleDrive {
             // Range not satisfiable: the offset is already at the end.
             Err(Error::External(m)) if offset > 0 && m.contains("error 416") => Ok(Vec::new()),
             Err(e) => Err(e),
+        }
+    }
+
+    fn download_to(&self, id: &str, offset: u64, out: &mut dyn Write) -> Result<u64> {
+        let mut counter = Counting {
+            inner: out,
+            written: 0,
+        };
+        let mut refreshed = false;
+        let mut attempt = 0;
+        loop {
+            let token = self.auth.access_token()?;
+            let mut req = HttpRequest::new(
+                "GET",
+                url(API, &format!("/files/{}", seg(id)), &[("alt", "media")]),
+            )
+            .header("Authorization", format!("Bearer {token}"));
+            if offset > 0 {
+                req = req.header("Range", format!("bytes={offset}-"));
+            }
+            let failure = match self.http.send_to(&req, &mut counter) {
+                Ok(resp) if resp.ok() || resp.status == 206 => return Ok(counter.written),
+                Ok(resp) if resp.status == 416 && offset > 0 => return Ok(0),
+                Ok(resp) if resp.status == 401 && !refreshed => {
+                    refreshed = true;
+                    self.auth.refresh_after_rejection(&token)?;
+                    continue;
+                }
+                Ok(resp) if retryable(&resp) => api_error(&resp),
+                Ok(resp) => return Err(api_error(&resp)),
+                // Bytes already written can't be taken back: the caller resumes from them.
+                Err(e @ Error::Network(_)) if counter.written == 0 => e,
+                Err(e) => return Err(e),
+            };
+            attempt += 1;
+            if attempt >= MAX_ATTEMPTS {
+                return Err(failure);
+            }
+            let delay = self
+                .retry_delay
+                .saturating_mul(1 << (attempt - 1))
+                .min(MAX_DELAY);
+            if !delay.is_zero() {
+                std::thread::sleep(delay);
+            }
         }
     }
 

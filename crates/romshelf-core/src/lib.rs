@@ -17,6 +17,7 @@ pub mod process;
 pub mod saves;
 pub mod settings;
 pub mod steam;
+pub mod storage;
 pub mod sync;
 pub mod tokens;
 pub mod transfer;

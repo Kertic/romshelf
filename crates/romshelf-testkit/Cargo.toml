@@ -9,6 +9,7 @@ romshelf-core = { path = "../romshelf-core" }
 serde_json.workspace = true
 tempfile.workspace = true
 url.workspace = true
+md-5 = "0.10"
 
 [dev-dependencies]
 ed25519-dalek = "2"

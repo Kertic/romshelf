@@ -14,6 +14,8 @@ pub struct LocalSettings {
     /// Email of the Google account the Drive folder belongs to.
     pub account: Option<String>,
     pub drive: Option<DriveFolder>,
+    /// Where ROMs are kept (`<root>/roms`); `None` is `~/Romshelf`.
+    pub storage_root: Option<std::path::PathBuf>,
 }
 
 impl Default for LocalSettings {
@@ -22,6 +24,7 @@ impl Default for LocalSettings {
             schema_version: LOCAL_SCHEMA,
             account: None,
             drive: None,
+            storage_root: None,
         }
     }
 }

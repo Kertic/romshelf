@@ -231,6 +231,83 @@ impl Database {
             .optional()?)
     }
 
+    // Transfer queue (one row per ROM and kind)
+
+    /// State and bytes received of a ROM's transfer of `kind`, if queued.
+    pub fn transfer(&self, rom_id: &RomId, kind: &str) -> Result<Option<(String, u64)>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT state, bytes_done FROM transfer_queue WHERE rom_id = ?1 AND kind = ?2",
+                [rom_id.as_str(), kind],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64)),
+            )
+            .optional()?)
+    }
+
+    /// Adds the transfer, or sets an existing one back to `state` with no bytes counted.
+    pub fn put_transfer(
+        &self,
+        rom_id: &RomId,
+        kind: &str,
+        state: &str,
+        created_at: i64,
+    ) -> Result<()> {
+        let updated = self.conn.execute(
+            "UPDATE transfer_queue SET state = ?3, bytes_done = 0 WHERE rom_id = ?1 AND kind = ?2",
+            params![rom_id.as_str(), kind, state],
+        )?;
+        if updated == 0 {
+            self.conn.execute(
+                "INSERT INTO transfer_queue (rom_id, kind, state, created_at) VALUES (?1, ?2, ?3, ?4)",
+                params![rom_id.as_str(), kind, state, created_at],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn set_transfer_state(&self, rom_id: &RomId, kind: &str, state: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE transfer_queue SET state = ?3 WHERE rom_id = ?1 AND kind = ?2",
+            params![rom_id.as_str(), kind, state],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_transfer_bytes(&self, rom_id: &RomId, kind: &str, bytes: u64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE transfer_queue SET bytes_done = ?3 WHERE rom_id = ?1 AND kind = ?2",
+            params![rom_id.as_str(), kind, bytes as i64],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove_transfer(&self, rom_id: &RomId, kind: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM transfer_queue WHERE rom_id = ?1 AND kind = ?2",
+            [rom_id.as_str(), kind],
+        )?;
+        Ok(())
+    }
+
+    /// ROMs with a transfer of `kind` in one of `states`, oldest first.
+    pub fn transfers_in(&self, kind: &str, states: &[&str]) -> Result<Vec<RomId>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT rom_id, state FROM transfer_queue WHERE kind = ?1 ORDER BY created_at, id",
+        )?;
+        let rows = stmt.query_map([kind], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (id, state) = row?;
+            if states.contains(&state.as_str()) {
+                out.push(RomId(id));
+            }
+        }
+        Ok(out)
+    }
+
     // Save backups (rows only; stage 6 fills in the rest)
 
     pub fn add_save_backup(&self, rom_id: &RomId, taken_at: i64, drive_path: &str) -> Result<()> {
