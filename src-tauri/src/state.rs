@@ -6,9 +6,21 @@ use romshelf_core::paths::Paths;
 use romshelf_core::Result;
 use romshelf_testkit::connection::{simulate_browser, FakeConnection};
 use romshelf_testkit::FakeHttp;
+use serde::Serialize;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+/// The last sync as the interface shows it.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct SyncStatus {
+    /// "idle" before the first sync, then "syncing", "synced", "offline" or "error".
+    pub state: &'static str,
+    /// Seconds since the epoch of the last successful sync.
+    pub last_synced_at: Option<i64>,
+    /// The summary line, or what went wrong.
+    pub message: Option<String>,
+}
 
 pub struct AppState {
     pub fake: bool,
@@ -22,6 +34,9 @@ pub struct AppState {
     pub fake_http: Option<Arc<FakeHttp>>,
     /// A newer version installed in the background this session.
     pub update_ready: Mutex<Option<String>>,
+    pub sync_status: Mutex<SyncStatus>,
+    /// Held while a sync runs, so two never overlap.
+    pub sync_lock: Mutex<()>,
     /// Keeps fake mode's temp directory alive for the life of the app.
     _fake_root: Option<tempfile::TempDir>,
 }
@@ -41,6 +56,11 @@ impl AppState {
                 connection: Arc::new(connection),
                 login_cancel: Arc::new(AtomicBool::new(false)),
                 update_ready: Mutex::new(None),
+                sync_status: Mutex::new(SyncStatus {
+                    state: "idle",
+                    ..SyncStatus::default()
+                }),
+                sync_lock: Mutex::new(()),
                 fake_http: None,
                 paths,
                 _fake_root: None,
@@ -64,9 +84,18 @@ impl AppState {
                 Duration::from_secs(5),
                 &AtomicBool::new(false),
             )?;
-            fake_conn
+            let folder = fake_conn
                 .connection
                 .setup_folder(ROOT, "My Drive", &mut |_: &str| {})?;
+            // The fixture ROMs as files in the fake Drive, so syncing finds what is indexed.
+            for rom in romshelf_testkit::fixtures::roms() {
+                fake_conn.drive.create_file_with_id(
+                    &rom.drive_file_id,
+                    &rom.file_name,
+                    &folder.layout.rom_folders[rom.system.id()],
+                    &vec![0; rom.size as usize],
+                )?;
+            }
         }
         let FakeConnection {
             connection, http, ..
@@ -79,6 +108,11 @@ impl AppState {
             connection: Arc::new(connection),
             login_cancel: Arc::new(AtomicBool::new(false)),
             update_ready: Mutex::new(None),
+            sync_status: Mutex::new(SyncStatus {
+                state: "idle",
+                ..SyncStatus::default()
+            }),
+            sync_lock: Mutex::new(()),
             fake_http: Some(http),
             _fake_root: Some(root),
         })
@@ -98,6 +132,18 @@ mod tests {
         assert_eq!(entries.len(), 8);
         assert!(state.paths.data_dir.exists());
         assert!(state.connection.status().unwrap().ready());
+    }
+
+    #[test]
+    fn fake_mode_syncs_its_fixture_drive_without_changes() {
+        let state = AppState::new(true, false).unwrap();
+        let db = state.db.lock().unwrap();
+        let report = state.connection.sync(&db, &state.paths).unwrap();
+        assert_eq!(report.total, 8);
+        assert_eq!(report.added + report.updated + report.gone, 0, "{report:?}");
+        let entries = library::entries(&db, &state.registry).unwrap();
+        assert_eq!(entries.len(), 8);
+        assert_eq!(entries.iter().filter(|e| e.in_steam).count(), 3);
     }
 
     #[test]

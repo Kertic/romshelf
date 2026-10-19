@@ -1,4 +1,6 @@
-import type { AppInfo, LibraryEntry } from "./api";
+import { useEffect, useState } from "react";
+import type { AppInfo, LibraryEntry, SyncStatus } from "./api";
+import { counts, inTab, syncLine, TABS } from "./library";
 
 function initials(name: string): string {
   return name
@@ -18,6 +20,16 @@ export function tileStatus(e: LibraryEntry): { text: string; warn: boolean } {
   return { text: "In Drive only", warn: false };
 }
 
+/** The current time, refreshed every 30 seconds so "synced 2 min ago" stays true. */
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  return now;
+}
+
 interface Props {
   info: AppInfo | null;
   entries: LibraryEntry[] | null;
@@ -26,17 +38,60 @@ interface Props {
   driveFolder: string | null;
   /** A newer Romshelf that runs from the next start. */
   newVersion?: string | null;
+  /** "all" or a system id. */
+  tab?: string;
+  onTab?: (tab: string) => void;
+  sync?: SyncStatus | null;
+  onSync?: () => void;
   onOpenSpike: () => void;
   onQuit: () => void;
 }
 
-/** Stage 0 shell: top band, the library as plain tiles, and the two test actions. */
-export function Home({ info, entries, error, driveFolder, newVersion, onOpenSpike, onQuit }: Props) {
-  const onDeck = entries?.filter((e) => e.rom.location.state === "on_deck").length ?? 0;
+/** The Library (UI guide 5.1): system tabs, the tile grid, files Romshelf can't run, and the folder strip. */
+export function Home({
+  info,
+  entries,
+  error,
+  driveFolder,
+  newVersion,
+  tab = "all",
+  onTab,
+  sync = null,
+  onSync,
+  onOpenSpike,
+  onQuit,
+}: Props) {
+  const now = useNow();
+  const current = TABS.find((t) => t.id === tab) ?? TABS[0];
+  const shown = entries ? inTab(entries, current.id) : null;
+  const roms = shown?.filter((e) => e.rom.recognized) ?? [];
+  const unrecognized = shown?.filter((e) => !e.rom.recognized) ?? [];
+  const { inDrive, onDeck } = counts(shown ?? []);
+  const line = syncLine(sync, now);
+  const busy = sync?.state === "syncing";
+  const romsPath = `${driveFolder ?? "My Drive / Emulation"} / roms`;
+  const folderPath = current.id === "all" ? romsPath : `${romsPath} / ${current.id}`;
+  const syncProblem = sync && (sync.state === "offline" || sync.state === "error") ? sync.message : null;
+
   return (
     <>
       <header className="top-band">
         <div className="app-name">Romshelf</div>
+        <nav className="tabs" aria-label="Systems">
+          <span className="key-cap mono">L1</span>
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={t.id === current.id ? "tab selected" : "tab"}
+              aria-pressed={t.id === current.id}
+              onClick={() => onTab?.(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+          <span className="key-cap mono">R1</span>
+        </nav>
         <div className="top-spacer" />
         {newVersion && (
           <span className="update-note" role="status">
@@ -44,31 +99,56 @@ export function Home({ info, entries, error, driveFolder, newVersion, onOpenSpik
           </span>
         )}
         {info?.fake && <span className="badge">Fixture library</span>}
-        <span className="mono muted">v{info?.version ?? "…"}</span>
+        <button
+          type="button"
+          className={line.warn ? "sync-status warn" : "sync-status"}
+          data-focusable
+          data-hint="Sync now"
+          disabled={busy}
+          onClick={onSync}
+        >
+          <span className={busy ? "sync-dot busy" : "sync-dot"} aria-hidden />
+          {line.text}
+        </button>
       </header>
 
       <main className="content home">
         <div className="home-heading">
-          <h1 className="section-heading">All systems</h1>
+          <h1 className="section-heading">{current.heading}</h1>
           {entries && (
             <span className="mono muted">
-              {entries.length} ROMs in Drive · {onDeck} on Deck
+              {inDrive} {inDrive === 1 ? "ROM" : "ROMs"} in Drive · {onDeck} on Deck
             </span>
           )}
         </div>
 
         {error && <p className="error">{error}</p>}
+        {syncProblem && <p className="error">{syncProblem}</p>}
 
         {entries && entries.length === 0 && (
           <div className="empty">
-            <span className="mono">{driveFolder ?? "My Drive / Emulation"} / roms</span>
-            <p>Upload ROMs to this folder from any device. Romshelf lists them once syncing arrives in the next build.</p>
+            <span className="mono">{romsPath}</span>
+            <p>Upload ROMs to this folder from any device and they appear here.</p>
+            <button
+              className="button primary"
+              data-focusable
+              data-hint="Sync"
+              type="button"
+              disabled={busy}
+              onClick={onSync}
+            >
+              Sync now
+            </button>
           </div>
         )}
 
-        {entries && entries.length > 0 && (
+        {entries && entries.length > 0 && roms.length === 0 && unrecognized.length === 0 && (
+          <p className="muted">No {current.label} ROMs yet.</p>
+        )}
+
+        {roms.length > 0 && (
           <div className="grid">
-            {entries.map((e) => {
+            {roms.map((e) => {
               const status = tileStatus(e);
               return (
                 <button key={e.rom.id} className="tile" data-focusable data-hint="Select" type="button">
@@ -86,8 +166,32 @@ export function Home({ info, entries, error, driveFolder, newVersion, onOpenSpik
           </div>
         )}
 
+        {unrecognized.length > 0 && (
+          <section className="unrecognized" aria-label="Files Romshelf can't run">
+            <h2 className="group-label">Not recognized</h2>
+            {unrecognized.map((e) => (
+              <div className="unrecognized-row" key={e.rom.id}>
+                <span className="mono">
+                  {e.system_label} / {e.rom.file_name}
+                </span>
+                <span className="tile-status warn">Unrecognized file</span>
+              </div>
+            ))}
+            <p className="muted small">
+              Romshelf runs only the file types each system supports. Convert or move these files in Drive.
+            </p>
+          </section>
+        )}
+
+        {entries && entries.length > 0 && (
+          <div className="folder-strip">
+            <span className="mono">{folderPath}</span>
+            <span>Upload ROMs to this folder from any device and they appear here.</span>
+          </div>
+        )}
+
         <div className="home-actions">
-          <button className="button primary" data-focusable data-hint="Open" type="button" onClick={onOpenSpike}>
+          <button className="button outline" data-focusable data-hint="Open" type="button" onClick={onOpenSpike}>
             Open gamepad test
           </button>
           <button className="button outline" data-focusable data-hint="Quit" type="button" onClick={onQuit}>

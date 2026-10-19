@@ -104,4 +104,6 @@ export const KEY_TO_BUTTON: Record<string, Button> = {
   " ": "a",
   Escape: "b",
   Backspace: "b",
+  PageUp: "l1",
+  PageDown: "r1",
 };

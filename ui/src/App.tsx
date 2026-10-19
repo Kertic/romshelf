@@ -3,10 +3,15 @@ import {
   appInfo,
   connectionStatus,
   library,
+  onLibraryChanged,
+  onSyncStatus,
   onUpdateReady,
   quit,
+  syncNow,
+  syncStatus,
   updateReady,
   type AppInfo,
+  type SyncStatus,
   type ConnectionStatus,
   type LibraryEntry,
 } from "./api";
@@ -16,6 +21,7 @@ import { Footer, type Hint } from "./Footer";
 import { GamepadSpike } from "./GamepadSpike";
 import { Home } from "./Home";
 import type { Button } from "./input";
+import { nextTab } from "./library";
 import { useInput } from "./useInput";
 
 type Screen = "loading" | "first-run" | "home" | "spike";
@@ -32,6 +38,34 @@ export function App() {
   const [back, setBackState] = useState<BackAction | null>(null);
   const backRef = useRef<BackAction | null>(null);
   const [newVersion, setNewVersion] = useState<string | null>(null);
+  const [tab, setTab] = useState("all");
+  const [sync, setSync] = useState<SyncStatus | null>(null);
+
+  const reloadLibrary = useCallback(() => {
+    library()
+      .then(setEntries)
+      .catch((e) => setError(`Couldn't read the library: ${String(e)}. Restart Romshelf.`));
+  }, []);
+
+  const startSync = useCallback(() => {
+    setSync((s) => ({ state: "syncing", last_synced_at: s?.last_synced_at ?? null, message: null }));
+    syncNow()
+      .then(setSync)
+      .catch((e) => setSync({ state: "error", last_synced_at: null, message: `Couldn't sync: ${String(e)}. Try again.` }));
+  }, []);
+
+  // Sync results arrive as events too (a sync started elsewhere), and a changed library is read again.
+  useEffect(() => {
+    let live = true;
+    const unlisteners: (() => void)[] = [];
+    syncStatus().then((s) => live && setSync((cur) => cur ?? s)).catch(() => {});
+    onSyncStatus((s) => setSync(s)).then((u) => (live ? unlisteners.push(u) : u()));
+    onLibraryChanged(reloadLibrary).then((u) => (live ? unlisteners.push(u) : u()));
+    return () => {
+      live = false;
+      unlisteners.forEach((u) => u());
+    };
+  }, [reloadLibrary]);
 
   // A newer build may finish downloading at any time while Romshelf is open.
   useEffect(() => {
@@ -56,12 +90,14 @@ export function App() {
         setStatus(s);
         setEntries(l);
         setScreen("home");
+        // Sync on start, after the last known library is on screen.
+        startSync();
       })
       .catch((e) => {
         setError(`Couldn't read the library: ${String(e)}. Restart Romshelf.`);
         setScreen("home");
       });
-  }, []);
+  }, [startSync]);
 
   useEffect(() => {
     Promise.all([appInfo(), connectionStatus()])
@@ -93,6 +129,8 @@ export function App() {
         syncHint();
       } else if (b === "a" && screen !== "spike") {
         (document.activeElement as HTMLElement | null)?.click();
+      } else if ((b === "l1" || b === "r1") && screen === "home") {
+        setTab((t) => nextTab(t, b === "l1" ? -1 : 1));
       } else if (b === "b" && screen === "first-run") {
         backRef.current?.run();
       } else if (b === "b" && screen === "spike" && from === "keyboard") {
@@ -112,16 +150,24 @@ export function App() {
     return () => clearTimeout(t);
   }, [holdingB]);
 
+  const focusedTab = useRef<string | null>(null);
   useEffect(() => {
-    if (screen === "home") {
-      // Initial focus: the first tile, or the first action when the library is empty.
-      const timer = setTimeout(() => {
-        focusables()[0]?.focus();
-        syncHint();
-      });
-      return () => clearTimeout(timer);
+    if (screen !== "home") {
+      focusedTab.current = null;
+      return;
     }
-  }, [screen, entries, syncHint]);
+    // Focus the first tile (or the first action when there are none) on arrival and on a tab
+    // change. A library reload after a sync keeps focus where it is if that element remains.
+    const timer = setTimeout(() => {
+      const active = document.activeElement as HTMLElement | null;
+      const kept = active && active !== document.body && document.body.contains(active);
+      if (focusedTab.current === tab && kept) return;
+      focusedTab.current = tab;
+      (document.querySelector<HTMLElement>(".tile[data-focusable]") ?? focusables()[0])?.focus();
+      syncHint();
+    });
+    return () => clearTimeout(timer);
+  }, [screen, entries, tab, syncHint]);
 
   const hints: Hint[] =
     screen === "spike"
@@ -143,6 +189,10 @@ export function App() {
           error={error}
           driveFolder={status?.drive_folder ?? null}
           newVersion={newVersion}
+          tab={tab}
+          onTab={setTab}
+          sync={sync}
+          onSync={startSync}
           onOpenSpike={() => setScreen("spike")}
           onQuit={() => void quit()}
         />

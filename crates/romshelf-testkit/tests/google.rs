@@ -529,3 +529,17 @@ fn logout_works_offline() {
     r.auth.logout().unwrap();
     assert!(!r.auth.signed_in().unwrap());
 }
+
+#[test]
+fn an_expired_change_token_is_reported_as_invalid() {
+    let r = signed_in();
+    r.http.push(
+        400,
+        r#"{"error":{"code":400,"message":"Invalid Value","errors":[{"reason":"invalid"}]}}"#,
+    );
+    assert!(matches!(
+        r.drive.changes("old").unwrap_err(),
+        Error::Invalid(_)
+    ));
+    assert_eq!(r.http.requests().len(), 1, "not retried");
+}

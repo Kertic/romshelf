@@ -106,8 +106,7 @@ impl Registry {
 
     /// The adapter for a file in a system folder, if its extension is recognized.
     pub fn for_file(&self, system: System, file_name: &str) -> Option<&dyn EmulatorAdapter> {
-        let ext = file_name.rsplit_once('.')?.1.to_ascii_lowercase();
-        if !system.extensions().contains(&ext.as_str()) {
+        if !system.recognizes(file_name) {
             return None;
         }
         self.for_system(system)

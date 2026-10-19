@@ -1,5 +1,53 @@
 # Progress
 
+## Stage 2: library index and sync (branch `stage-02-library-sync`)
+
+Status: **on-Deck checks passed 2026-10-19.**
+
+### Built
+
+- `model.rs`: the stage's extension table (SNES `sfc smc zip 7z`, GBA `gba zip 7z`, N64 `z64 n64 v64 zip 7z`, GameCube `iso rvz gcz ciso`, PS2 `iso chd`), matched in any case by `System::recognizes`. The folder decides the system; other files are kept as "not recognized" and never launched.
+- `sync/mod.rs`:
+  - The first sync lists every `roms/<system>/` folder. Later syncs read Drive's change feed from the stored token; a rejected token (or a different Drive folder) means a full scan again.
+  - Files are matched by Drive file id: a rename keeps the rom-id and updates the name; a move between system folders keeps the rom-id and changes the system.
+  - Trashed, deleted or moved-out files are marked `gone`, never deleted, so saves, controls and shortcut records stay. Restoring one brings back the same rom-id (on Deck if the local file is there).
+  - Only real files directly in a system folder count: not sub-folders, Google Docs or Drive shortcuts.
+  - Rows are written only when something changed, and `.romshelf/index.json` (file id → rom-id and chosen name) only when it changed. The sync steps past its own index write, so the next sync with nothing new writes nothing.
+  - A second device adopts ids and chosen names from `index.json`. An index from a newer Romshelf stops sync with "Please update Romshelf".
+- Display names: the stem with `(…)`/`[…]` tags removed and `_`/`-` as spaces, title-cased only when the stem was all lower case. A chosen name (`sync::set_display_name`) wins and follows renames; the interface to set one comes later.
+- Database migration 2: `name_overrides`. Also `rom_by_drive_id`, save-backup rows (for the "saves untouched" test) and `total_changes`.
+- Google client: HTTP 400 (such as an expired change token) is now `Error::Invalid`, so sync falls back to a full scan.
+- `romshelf sync` prints one line, such as "Synced 12 files: 2 new, 1 not recognized."
+- Interface: the Library syncs when it opens, and when the sync line in the top band is selected. The sync line reads "Google Drive synced 2 min ago", "Syncing with Google Drive…", "Offline" or "Sync failed", with the reason shown above the grid.
+  - System tabs (All, SNES, GBA, N64, PS2, GameCube) change with L1/R1 (Page Up/Page Down on a keyboard). The header counts "{n} ROMs in Drive · {n} on Deck" for the tab.
+  - Tiles show recognized files; a "Not recognized" group lists the rest with their folder.
+  - A folder strip shows the Drive path, and an empty library offers "Sync now".
+  - Focus goes to the first tile on arrival and on a tab change, and stays put when a sync reloads the library.
+- Fake mode puts the fixture ROMs in its fake Drive, so it syncs for real and finds nothing to change.
+
+### Tests
+
+21 sync tests: extension table (upper case too, `.txt` unrecognized, GameCube `.zip` unrecognized); 14 display-name cases; 500 files in one full scan; a second sync with no database or Drive writes; new upload; unrecognized files; only real files in system folders; rename; chosen name surviving a rename and being cleared; move between systems; trash and restore with save rows untouched; restore when the file is on the Deck; permanent delete and moving out; full scan marking missing files gone; second device adopting ids (including a moved file's) and names; index written only on change; rejected token; new Drive folder; id collision; newer index; summary wording. Plus Google 400 → invalid, `Connection::sync`, fake-mode sync, and 11 UI tests (tabs and L1/R1 wrap, counts, singular, sync wording and ages, tiles vs not recognized, tab filter, empty tab, Sync now, disabled while syncing, failure message).
+
+### Choices made (not covered by the kit)
+
+- **rom-id:** the stage file says `<system>-<8 random hex>`; CLAUDE.md's fixed decision 5 (FNV-1a of the Drive file id), already built in stage 0, wins. On a collision the file id is hashed with a counter (`derive_salted`), so every device picks the same id. `index.json` still matters: a moved file keeps its first id, which a fresh hash would not give.
+- GameCube `.gcm` (stage 0's list) is dropped to match the stage table.
+- "Not recognized" files are listed under the grid, not as tiles; "ROMs in Drive" counts only recognized files.
+- The time of the last sync lives in memory, not the database, so a sync with nothing new writes nothing.
+- Paging is the Drive client's job (tested in `google.rs`); the fake Drive returns whole listings.
+- A system folder that is itself trashed isn't detected until a full scan.
+
+### On-Deck checklist
+
+- [x] Upload a ROM from a phone, press Sync, and it appears under the right system.
+- [x] Rename it in Drive, sync, and the tile updates without duplicating.
+- [x] Counts in the header match Drive.
+
+Results:
+
+- 2026-10-19: `romshelf sync` on the Deck against the real Drive: "Synced 2 files: 2 new, 1 not recognized.", then "Synced 2 files. Nothing changed." The GameCube `.zip` is listed under "Not recognized"; all three checks passed in the interface.
+
 ## Stage 10a: self-update, pulled forward (branch `stage-10a-self-update`, on top of stage 1)
 
 Status: **merged; on-Deck checks passed 2026-10-18 except the offline start. The Deck runs 0.1.2 with 0.1.1 kept as previous.**
