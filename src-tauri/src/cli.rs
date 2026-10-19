@@ -28,6 +28,19 @@ pub enum Command {
     Steam(SteamCommand),
     /// Install a newer Romshelf now, roll back, or set the GitHub token for updates.
     Update(UpdateArgs),
+    /// Download a ROM to this Deck.
+    Download {
+        /// ROM id, for example `gba-0a1b2c3d`.
+        id: String,
+    },
+    /// Delete a ROM from this Deck, from Drive (to Drive's trash), or both.
+    Delete(DeleteArgs),
+    /// Show where ROMs are kept, or move them to another folder (an SD card).
+    Storage {
+        /// Folder to keep ROMs in; downloaded ROMs are moved there.
+        #[arg(long)]
+        set: Option<String>,
+    },
 }
 
 #[derive(Debug, Args, PartialEq, Eq)]
@@ -54,6 +67,17 @@ pub enum AuthCommand {
     Login,
     Logout,
     Status,
+}
+
+#[derive(Debug, Args, PartialEq, Eq)]
+pub struct DeleteArgs {
+    /// ROM id, for example `gba-0a1b2c3d`.
+    pub id: String,
+    #[arg(long, value_parser = ["deck", "drive", "both"])]
+    pub scope: String,
+    /// Also delete the ROM's save backups (kept by default).
+    #[arg(long)]
+    pub delete_save_backups: bool,
 }
 
 #[derive(Debug, Args, PartialEq, Eq, Default)]
@@ -83,6 +107,9 @@ impl Command {
             Command::Auth(_) => "auth",
             Command::Steam(_) => "steam",
             Command::Update(_) => "update",
+            Command::Download { .. } => "download",
+            Command::Delete(_) => "delete",
+            Command::Storage { .. } => "storage",
         }
     }
 }
@@ -169,6 +196,30 @@ mod tests {
             Some(Command::Steam(SteamCommand::List))
         );
         assert_eq!(
+            parse(&["download", "gba-00000001"]).unwrap().command,
+            Some(Command::Download {
+                id: "gba-00000001".into()
+            })
+        );
+        assert_eq!(
+            parse(&["delete", "gba-00000001", "--scope", "both"])
+                .unwrap()
+                .command,
+            Some(Command::Delete(DeleteArgs {
+                id: "gba-00000001".into(),
+                scope: "both".into(),
+                delete_save_backups: false
+            }))
+        );
+        assert_eq!(
+            parse(&["storage", "--set", "/run/media/deck/SD/Romshelf"])
+                .unwrap()
+                .command,
+            Some(Command::Storage {
+                set: Some("/run/media/deck/SD/Romshelf".into())
+            })
+        );
+        assert_eq!(
             parse(&["update"]).unwrap().command,
             Some(Command::Update(UpdateArgs::default()))
         );
@@ -195,5 +246,11 @@ mod tests {
         assert!(parse(&["steam", "nope"]).is_err());
         assert!(parse(&["doctor", "--bogus"]).is_err());
         assert!(parse(&["update", "--rollback", "--set-token"]).is_err());
+        assert!(parse(&["download"]).is_err());
+        assert!(parse(&["delete", "gba-00000001", "--scope", "everything"]).is_err());
+        assert!(
+            parse(&["delete", "gba-00000001"]).is_err(),
+            "scope is required"
+        );
     }
 }

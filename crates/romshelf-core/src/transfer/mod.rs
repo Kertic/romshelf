@@ -347,11 +347,7 @@ pub fn run_pending(db: &Mutex<Database>, dl: &Downloader, events: &dyn Fn(Event)
                 total,
                 rate: ((bytes - first) as f64 / secs) as u64,
             });
-            let percent = if total == 0 {
-                100
-            } else {
-                (bytes * 100 / total).min(100) as u8
-            };
+            let percent = (bytes * 100).checked_div(total).unwrap_or(100).min(100) as u8;
             if last_percent != Some(percent) {
                 last_percent = Some(percent);
                 let db = lock();

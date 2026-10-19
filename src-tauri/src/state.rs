@@ -37,6 +37,10 @@ pub struct AppState {
     pub sync_status: Mutex<SyncStatus>,
     /// Held while a sync runs, so two never overlap.
     pub sync_lock: Mutex<()>,
+    /// Stops the download under way.
+    pub cancel: Arc<AtomicBool>,
+    /// A download worker thread is running.
+    pub worker_busy: AtomicBool,
     /// Keeps fake mode's temp directory alive for the life of the app.
     _fake_root: Option<tempfile::TempDir>,
 }
@@ -46,7 +50,7 @@ impl AppState {
     /// fixture library and a fake Drive. `fake_first_run` starts fake mode signed out.
     pub fn new(fake: bool, fake_first_run: bool) -> Result<AppState> {
         if !fake {
-            let paths = Paths::from_env()?;
+            let paths = Paths::for_app()?;
             let db = Database::open(&paths.db_file())?;
             let connection = Connection::real(&paths)?;
             return Ok(AppState {
@@ -61,6 +65,8 @@ impl AppState {
                     ..SyncStatus::default()
                 }),
                 sync_lock: Mutex::new(()),
+                cancel: Arc::new(AtomicBool::new(false)),
+                worker_busy: AtomicBool::new(false),
                 fake_http: None,
                 paths,
                 _fake_root: None,
@@ -113,6 +119,8 @@ impl AppState {
                 ..SyncStatus::default()
             }),
             sync_lock: Mutex::new(()),
+            cancel: Arc::new(AtomicBool::new(false)),
+            worker_busy: AtomicBool::new(false),
             fake_http: Some(http),
             _fake_root: Some(root),
         })

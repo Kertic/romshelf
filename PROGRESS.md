@@ -1,5 +1,49 @@
 # Progress
 
+## Stage 3: download, delete and storage (branch `stage-03-download-delete`)
+
+Status: **built; waiting for on-Deck checks.**
+
+### Built
+
+- **Storage root:** ROMs go to `<root>/roms/<system>/<file>`. The default root is `~/Romshelf` (see choices). `romshelf storage` shows it and the free space; `romshelf storage --set <folder>` moves every downloaded ROM there (checking all destinations first, refusing to overwrite a different file, never while downloads run) and saves it in `~/.config/romshelf/settings.json`.
+- **Downloads** (`transfer/mod.rs`):
+  - Stream into `<file>.part` instead of memory, so GameCube images over 1 GB are fine. The HTTP seam has a streaming `send_to`, and the Drive trait has `download_to`.
+  - Resume from the `.part` length with a `Range` request. The Google client retries only before the first byte arrives; after that the downloader resumes. A dropped connection is retried after 2 s, doubling to 30 s, 12 times in all (about four minutes).
+  - Check size and the MD5 Drive reports, then rename into place. A mismatch discards the file and says so.
+  - Check free space first, with 256 MB headroom, and refuse with the shortfall named ("Free up 1.2 GB more…") before writing anything.
+  - The queue lives in `transfer_queue` (queued, running, paused, failed, done) and runs one download at a time. A download running when Romshelf closed resumes on the next start. Cancel stops the running one (removing its `.part`) or takes a waiting one off the queue.
+  - Progress events (bytes, total, rate) at most four a second; the tile's percentage is kept in the database too.
+- **Locations on start** (`storage::reconcile`): an on-Deck ROM whose file is missing or the wrong size becomes "In Drive only", a matching file found on disk becomes "On Deck", and a download with nothing queued is cleared. If the storage root and its parent are both missing (the SD card is out), nothing is changed and the Library shows "The storage at … isn't available…"; downloads refuse with the same message.
+- **Delete** with three scopes: this Deck (local file and any `.part`), Drive (moved to Drive's trash, never deleted; the row becomes gone and the local copy stays), or both. Drive goes first, so an offline failure deletes nothing. A ROM that is downloading can't be deleted from the Deck until the download is cancelled. "Keep save backups" is asked (on by default) and passed through; it takes effect once save backups exist in stage 6.
+- **Commands:** `romshelf download <id>` (progress on stderr), `romshelf delete <id> --scope deck|drive|both [--delete-save-backups]`, `romshelf storage [--set <folder>]`.
+- **Interface:**
+  - A on a tile opens the game's actions: metadata in mono, "Download to Deck" / "Download again", a progress bar with percentage, rate and time left plus "Cancel download", "Delete…", and the last error.
+  - X on a tile that is only in Drive downloads it (hint shown in the footer). Tiles show live "Downloading 64%".
+  - The delete dialog follows UI guide section 7: three choices (the Deck ones disabled when the game isn't on the Deck), "Keep save backups" when Drive is included, and Cancel focused first.
+  - B closes or goes back. The D-pad stays inside an open dialog, and focus returns to the tile afterwards.
+
+### Tests
+
+19 transfer tests: happy path; interrupted at 40% resumes with the right range and identical bytes; restart with a running item resumes from the `.part`; checksum mismatch discards and marks failed; not enough space writes nothing and names the shortfall; headroom boundary; cancel removes the `.part`; queueing once; progress ends at the total; delete Deck / Drive / both, each asserting no other file in the fake Drive or temp directory changed; a queued download cancelled by deleting; reconcile (missing, copied in, wrong size); SD card removed is unavailable, not deleted; downloads refuse while unavailable; the default root is created on first download; moving the root keeps files without downloading again; refusing to overwrite a different file. Plus a streamed Google download (range, retry before the first byte, 416), three CLI tests, CLI parsing, sizes, and 10 UI tests for the dialogs and progress wording.
+
+### Choices made (not covered by the kit)
+
+- **Default storage root `~/Romshelf`, not `~/Emulation`.** This Deck has EmuDeck, which keeps its own ROMs in `~/Emulation/roms/<system>`. Romshelf stays out of it. `ROMSHELF_ROM_ROOT` still overrides everything.
+- **"SD card removed" means the root and its parent are both missing.** SteamOS removes the card's mount point, so that is the signal. A missing root whose parent exists (`~/Romshelf` before the first download) is simply created.
+- **The stage file's paths:** it says `~/Applications/Romshelf/romshelf.AppImage`; the fixed decision 8 path `~/Applications/romshelf.AppImage` is unchanged (that's stage 10's concern).
+- **One download at a time.** The stage allows one or two.
+- **The actions dialog stands in for the drawer and ROM page** until stage 9. It has no Play yet (stage 5).
+- **Storage location in the interface:** only the CLI for now. The Settings screen ("Storage") comes in stage 9.
+- **New subcommands** `download`, `delete`, `storage` and the `DiskSpace` seam are added to CLAUDE.md.
+
+### On-Deck checklist
+
+- [ ] Download a large ROM; progress moves and the time estimate is sensible.
+- [ ] Turn Wi-Fi off mid-download and back on; it completes.
+- [ ] Delete from Drive, then find the file in Drive's trash.
+- [ ] Set the storage root to the SD card and download there.
+
 ## Stage 2: library index and sync (branch `stage-02-library-sync`)
 
 Status: **on-Deck checks passed 2026-10-19.**

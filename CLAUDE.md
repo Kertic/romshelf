@@ -11,7 +11,7 @@ Steam Deck app that manages emulation from one place. Full brief: `docs/kit/00-I
 
 ## Fixed decisions (ask before changing)
 
-1. One binary, `romshelf`. No args → full-screen UI. Subcommands (`launch`, `sync`, `doctor`, `auth`, `steam`, `update`) run headless.
+1. One binary, `romshelf`. No args → full-screen UI. Subcommands (`launch`, `sync`, `doctor`, `auth`, `steam`, `update`, `download`, `delete`, `storage`) run headless.
 2. Tauri 2; all logic in Rust; front end React + Vite + TypeScript, plain CSS with custom-property tokens, no component library.
 3. All logic in `crates/romshelf-core` (no Tauri dependency). `src-tauri` and the CLI are thin layers.
 4. Drive API v3 directly with the user's own desktop client ID, full `drive` scope, loopback + PKCE sign-in in the system browser.
@@ -19,7 +19,7 @@ Steam Deck app that manages emulation from one place. Full brief: `docs/kit/00-I
 6. Emulators as per-user Flatpaks. RetroArch (SNES, GBA, N64) and Dolphin (GameCube) first; PCSX2 later.
 7. Shortcuts via `shortcuts.vdf` + `grid/` artwork; batch changes, one Steam-restart prompt.
 8. AppImage at a fixed path (`~/Applications/romshelf.AppImage`) so shortcut targets never change.
-9. SQLite index and logs in `~/.local/share/romshelf/`, settings in `~/.config/romshelf/`, ROMs under a user-chosen root.
+9. SQLite index and logs in `~/.local/share/romshelf/`, settings in `~/.config/romshelf/`, ROMs under a user-chosen root (`<root>/roms/<system>/`; default `~/Romshelf`, away from EmuDeck's `~/Emulation`; `romshelf storage --set` moves it).
 
 ## Seams
 
@@ -33,6 +33,7 @@ Everything external goes through a trait with a real and a fake implementation. 
 | `ProcessRunner` | `process` | `SystemProcessRunner` | `FakeProcessRunner` |
 | `SteamFiles` | `steam` | `FsSteamFiles` on `~/.steam/steam` | `FakeSteam` (temp copy) |
 | `TokenStore` | `tokens` | `KeyringTokenStore` with silent `FileTokenStore` 0600 fallback (`FallbackTokenStore`) | `MemoryTokenStore` |
+| `DiskSpace` | `storage` | `FsDiskSpace` | `FixedSpace` |
 | `Clock` | `clock` | `SystemClock` | `FakeClock` |
 
 `Paths` (`paths.rs`) holds every filesystem location; nothing else builds paths from `~`.
