@@ -18,6 +18,7 @@ use romshelf_core::drive::scaffold;
 use romshelf_core::drive::DriveClient;
 use romshelf_core::emulators::setup::{self, EmulatorInfo, SetupContext, SetupEvent};
 use romshelf_core::emulators::Registry;
+use romshelf_core::launch::{self, LaunchContext, LaunchEvent, Step, Target};
 use romshelf_core::library::{self, LibraryEntry};
 use romshelf_core::model::RomId;
 use romshelf_core::paths::Paths;
@@ -45,7 +46,19 @@ const LOGIN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 pub fn run() -> i32 {
     let cli = Cli::parse();
     match cli.command {
-        None => run_interface(),
+        None => match open_state() {
+            Ok(state) => run_interface(state, None),
+            Err(code) => code,
+        },
+        Some(Command::Launch(args)) => {
+            let target = match (args.id, args.rom) {
+                (Some(id), _) => Target::Id(id),
+                (None, Some(rom)) => Target::Rom(rom),
+                (None, None) => unreachable!("clap requires --id or --rom"),
+            };
+            launch_command(target)
+        }
+        Some(Command::Doctor { id: Some(id) }) => doctor_launch(&id),
         Some(Command::Auth(cmd)) => {
             let conn = match Paths::for_app().and_then(|p| Connection::real(&p)) {
                 Ok(c) => c,
@@ -708,11 +721,232 @@ fn quit(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+/// Runs `f` with a launch context built from the app state.
+fn with_launch_ctx<T>(
+    state: &AppState,
+    f: impl FnOnce(&LaunchContext) -> romshelf_core::Result<T>,
+) -> romshelf_core::Result<T> {
+    let folder = state.connection.settings()?.drive;
+    let ctx = LaunchContext {
+        db: &state.db,
+        registry: &state.registry,
+        paths: &state.paths,
+        drive: state.connection.drive.as_ref(),
+        layout: folder.as_ref().map(|f| &f.layout),
+        runner: state.runner.as_ref(),
+        http: state.http.as_ref(),
+        process: state.process.as_ref(),
+        space: &FsDiskSpace,
+        cancel: &state.cancel,
+        clock: &SystemClock,
+        retry_delay: DOWNLOAD_RETRY,
+        max_attempts: DOWNLOAD_ATTEMPTS,
+    };
+    f(&ctx)
+}
+
+/// What the interface hears while a game is prepared and played.
+#[derive(Clone, Serialize)]
+struct LaunchUpdate {
+    rom_id: String,
+    /// "step", "progress", "finished" or "failed".
+    kind: &'static str,
+    step: Option<Step>,
+    /// The step as the launch window shows it: "Downloading", "Setting up Dolphin".
+    label: Option<String>,
+    percent: Option<u8>,
+    /// The emulator's exit code, when finished.
+    code: Option<i32>,
+    message: Option<String>,
+}
+
+/// Starts a game: downloads it and sets up its emulator if needed, then runs it. Returns at
+/// once; `launch-update` events follow. In the launch window, Romshelf exits with the
+/// emulator's exit code when the game ends.
+#[tauri::command]
+fn play(app: tauri::AppHandle, rom_id: String) -> Result<(), UiError> {
+    {
+        let state = app.state::<AppState>();
+        let mut playing = state.playing.lock().map_err(internal)?;
+        if playing.is_some() {
+            return Ok(());
+        }
+        *playing = Some(rom_id.clone());
+    }
+    std::thread::spawn(move || {
+        let state = app.state::<AppState>();
+        let launching = state
+            .launch_target
+            .lock()
+            .map(|t| t.is_some())
+            .unwrap_or(false);
+        let update = |kind, step: Option<Step>, label, percent, code, message| {
+            let _ = app.emit(
+                "launch-update",
+                LaunchUpdate {
+                    rom_id: rom_id.clone(),
+                    kind,
+                    step,
+                    label,
+                    percent,
+                    code,
+                    message,
+                },
+            );
+        };
+        let target = Target::Id(rom_id.clone());
+        let result = with_launch_ctx(&state, |ctx| {
+            let emulator = {
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| Error::External(e.to_string()))?;
+                let rom = launch::resolve(&db, &target)?;
+                state.registry.require(rom.system)?.name().to_string()
+            };
+            launch::run(ctx, &target, &mut |e| match e {
+                LaunchEvent::Step { step } => {
+                    // The game takes the screen; the launch window gets out of its way.
+                    if launching && step == Step::Run {
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.hide();
+                        }
+                    }
+                    update(
+                        "step",
+                        Some(step),
+                        Some(step.label(&emulator)),
+                        None,
+                        None,
+                        None,
+                    )
+                }
+                LaunchEvent::Progress { percent } => {
+                    update("progress", None, None, Some(percent), None, None)
+                }
+            })
+        });
+        if let Ok(mut p) = state.playing.lock() {
+            *p = None;
+        }
+        let _ = app.emit("library-changed", ());
+        match result {
+            Ok(code) => {
+                update("finished", None, None, None, Some(code), None);
+                if launching {
+                    // Back to Steam, with the emulator's exit code.
+                    app.exit(code);
+                }
+            }
+            Err(e) => {
+                if launching {
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.show();
+                    }
+                }
+                update(
+                    "failed",
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(UiError::from(e).message),
+                );
+            }
+        }
+    });
+    Ok(())
+}
+
+/// The game the launch window is for, if this is one.
+#[tauri::command]
+fn launch_target(state: tauri::State<'_, AppState>) -> Option<String> {
+    state.launch_target.lock().ok().and_then(|t| t.clone())
+}
+
+/// `romshelf launch`: a game that is ready starts at once with no window; otherwise the launch
+/// window shows the download or setup first. Exits with the emulator's exit code; 2 when the
+/// game isn't known.
+fn launch_command(target: Target) -> i32 {
+    let state = match open_state() {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    let failed = |e: Error| {
+        let code = if matches!(e, Error::NotFound(_)) {
+            2
+        } else {
+            1
+        };
+        eprintln!("{}", UiError::from(e).message);
+        code
+    };
+    let needs_window = match with_launch_ctx(&state, |ctx| launch::needs_window(ctx, &target)) {
+        Ok(n) => n,
+        Err(e) => return failed(e),
+    };
+    if !needs_window {
+        let result = with_launch_ctx(&state, |ctx| launch::run(ctx, &target, &mut |_| {}));
+        return result.unwrap_or_else(failed);
+    }
+    let rom_id = {
+        let db = match state.db.lock() {
+            Ok(db) => db,
+            Err(e) => return failed(Error::External(e.to_string())),
+        };
+        match launch::resolve(&db, &target) {
+            Ok(rom) => rom.id.to_string(),
+            Err(e) => return failed(e),
+        }
+    };
+    run_interface(state, Some(rom_id))
+}
+
+/// `romshelf doctor --id`: each step a launch would take, without doing any of it.
+fn doctor_launch(id: &str) -> i32 {
+    let state = match open_state() {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    let target = Target::Id(id.to_string());
+    match with_launch_ctx(&state, |ctx| launch::plan(ctx, &target)) {
+        Ok(steps) => {
+            println!("Launching {id} would:");
+            for (i, s) in steps.iter().enumerate() {
+                println!("  {}. {}", i + 1, s.detail);
+            }
+            0
+        }
+        Err(e) => {
+            let code = if matches!(e, Error::NotFound(_)) {
+                2
+            } else {
+                1
+            };
+            eprintln!("{}", UiError::from(e).message);
+            code
+        }
+    }
+}
+
 fn env_flag(name: &str) -> bool {
     std::env::var(name).is_ok_and(|v| v == "1")
 }
 
-fn run_interface() -> i32 {
+/// Opens Romshelf's data for the interface or a launch; on failure, the exit code.
+fn open_state() -> Result<AppState, i32> {
+    AppState::new(
+        env_flag("ROMSHELF_FAKE"),
+        env_flag("ROMSHELF_FAKE_FIRST_RUN"),
+    )
+    .map_err(|e| {
+        eprintln!("Couldn't open Romshelf's data: {e}");
+        1
+    })
+}
+
+/// The full-screen interface, or with `launch` set, the launch window for that game.
+fn run_interface(state: AppState, launch: Option<String>) -> i32 {
     #[cfg(target_os = "linux")]
     {
         // WebKitGTK's DMA-BUF renderer shows a blank window under gamescope on some drivers.
@@ -720,17 +954,10 @@ fn run_interface() -> i32 {
             std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
         }
     }
-
-    let state = match AppState::new(
-        env_flag("ROMSHELF_FAKE"),
-        env_flag("ROMSHELF_FAKE_FIRST_RUN"),
-    ) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Couldn't open Romshelf's data: {e}");
-            return 1;
-        }
-    };
+    let launching = launch.is_some();
+    if let Ok(mut t) = state.launch_target.lock() {
+        *t = launch;
+    }
     // Full screen unless asked otherwise; debug builds default to a window for development.
     let fullscreen = if env_flag("ROMSHELF_WINDOWED") {
         false
@@ -757,6 +984,8 @@ fn run_interface() -> i32 {
             storage_status,
             emulators,
             setup_emulator,
+            play,
+            launch_target,
             quit
         ])
         .setup(move |app| {
@@ -767,7 +996,10 @@ fn run_interface() -> i32 {
                 .focused(true)
                 .build()?;
             gamepad::start(app.handle().clone());
-            start_update_check(app.handle().clone());
+            // A launch window is only there to start one game.
+            if !launching {
+                start_update_check(app.handle().clone());
+            }
             // Correct ROM locations against the disk, then resume any downloads.
             {
                 let state = app.state::<AppState>();
@@ -780,7 +1012,9 @@ fn run_interface() -> i32 {
                 }
             }
             start_downloads(app.handle());
-            refresh_emulators(app.handle());
+            if !launching {
+                refresh_emulators(app.handle());
+            }
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.set_focus();
             }

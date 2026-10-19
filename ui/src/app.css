@@ -652,3 +652,33 @@ button:focus {
   font-size: 14px;
   font-weight: 600;
 }
+
+/* Launch window (UI guide section 8): centred 560 px column on the background colour. */
+.launch-window {
+  align-items: center;
+  justify-content: center;
+}
+.launch-column {
+  width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.launch-cover {
+  width: 120px;
+  height: 120px;
+  border-radius: var(--radius-card);
+  padding: 10px;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.launch-initials {
+  font-size: 32px;
+  font-weight: 700;
+}
+.progress-fill[data-indeterminate] {
+  opacity: 0.35;
+  animation: sync-pulse 1s ease-in-out infinite alternate;
+}

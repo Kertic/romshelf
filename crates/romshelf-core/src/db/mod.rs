@@ -92,6 +92,9 @@ impl Database {
 
     fn init(conn: Connection) -> Result<Database> {
         conn.pragma_update(None, "foreign_keys", true)?;
+        // The interface and a `romshelf launch` from Steam can use the database at the same
+        // time; each waits briefly for the other's write instead of failing.
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
         let mut db = Database { conn };
         db.migrate()?;
         Ok(db)

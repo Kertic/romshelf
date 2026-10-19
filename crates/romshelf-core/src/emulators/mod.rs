@@ -19,8 +19,16 @@ use std::path::PathBuf;
 #[derive(Debug, Clone)]
 pub struct LaunchSession {
     pub rom_path: PathBuf,
-    pub saves_dir: PathBuf,
-    pub states_dir: PathBuf,
+    /// The folder holding `roms/`, opened read-only to the Flatpak for this run.
+    pub storage_root: PathBuf,
+}
+
+impl LaunchSession {
+    /// `--filesystem=<storage root>:ro`, so the sandboxed emulator can read the ROM wherever
+    /// it is kept (home or an SD card).
+    pub fn filesystem_arg(&self) -> String {
+        format!("--filesystem={}:ro", self.storage_root.display())
+    }
 }
 
 /// An emulator-specific function shown on the ROM page (cheats, memory cards, …).
@@ -107,7 +115,12 @@ pub trait EmulatorAdapter: Send + Sync {
         Ok(())
     }
 
-    fn launch_command(&self, rom: &Rom, session: &LaunchSession) -> Result<CommandSpec>;
+    fn launch_command(
+        &self,
+        rom: &Rom,
+        session: &LaunchSession,
+        paths: &Paths,
+    ) -> Result<CommandSpec>;
     fn save_paths(&self, rom: &Rom, paths: &Paths) -> Vec<PathBuf>;
     /// Render the merged layout into the emulator's own configuration. Implemented in stage 7.
     fn write_controls(&self, layout: &ControlLayout, rom: &Rom) -> Result<()>;

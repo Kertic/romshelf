@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { LibraryEntry, Progress } from "./api";
 import type { SetupState } from "./Emulators";
+import type { LaunchState } from "./LaunchWindow";
 import type { BackAction } from "./FirstRun";
 
 /** "1.4 GB", "820 MB". */
@@ -50,6 +51,10 @@ interface Props {
   onCancel: () => void;
   /** Removes the copy on this Deck; Drive is never touched. */
   onRemove: () => Promise<void>;
+  /** Starts the game. */
+  onPlay?: () => void;
+  /** This game being prepared or played. */
+  launch?: LaunchState;
   /** Installs and sets up this game's emulator. */
   onSetupEmulator?: () => void;
   /** The emulator's setup, while it runs or after it failed. */
@@ -88,6 +93,8 @@ export function RomDialog({
   onDownload,
   onCancel,
   onRemove,
+  onPlay,
+  launch,
   onSetupEmulator,
   setup,
   onClose,
@@ -118,6 +125,9 @@ export function RomDialog({
   // The guide's screen 2b: with the emulator missing, setting it up is the main action.
   const needsSetup = Boolean(entry.emulator) && !entry.emulator_ready;
   const setupRunning = Boolean(setup?.running);
+  // Downloaded with its emulator ready: Play is the main action (guide screen 2).
+  const canPlay = state === "on_deck" && entry.emulator_ready;
+  const playing = Boolean(launch?.running);
 
   return (
     <div className="dialog-backdrop">
@@ -151,6 +161,7 @@ export function RomDialog({
           </p>
         )}
         {error && <p className="error">{error}</p>}
+        {launch?.error && <p className="error">{launch.error}</p>}
         {entry.emulator && entry.actions.length > 0 && (
           <section className="functions" aria-label={`${entry.emulator} functions`}>
             <h3 className="group-label">{entry.emulator} functions</h3>
@@ -163,6 +174,19 @@ export function RomDialog({
           </section>
         )}
         <div className="dialog-actions">
+          {canPlay && (
+            <button
+              className="button primary"
+              data-focusable
+              data-autofocus
+              data-hint="Play"
+              type="button"
+              disabled={playing}
+              onClick={onPlay}
+            >
+              {playing ? `${launch?.label ?? "Starting"}…` : "Play"}
+            </button>
+          )}
           {needsSetup && (
             <button
               className="button primary"
@@ -184,7 +208,7 @@ export function RomDialog({
             <button
               className={state === "on_deck" || needsSetup ? "button outline" : "button primary"}
               data-focusable
-              data-autofocus={needsSetup ? undefined : true}
+              data-autofocus={needsSetup || canPlay ? undefined : true}
               data-hint="Download"
               type="button"
               onClick={onDownload}

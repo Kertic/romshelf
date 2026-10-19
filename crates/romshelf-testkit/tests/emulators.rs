@@ -359,6 +359,7 @@ impl EmulatorAdapter for NeedsBios {
         &self,
         _rom: &romshelf_core::model::Rom,
         _session: &romshelf_core::emulators::LaunchSession,
+        _paths: &Paths,
     ) -> romshelf_core::Result<romshelf_core::process::CommandSpec> {
         unreachable!()
     }
@@ -474,4 +475,45 @@ fn the_simulated_flatpak_installs_and_remembers() {
     assert_eq!(out.code, 0);
     assert_eq!(seen.len(), 10);
     assert!(Dolphin.detect(&runner).unwrap());
+}
+
+#[test]
+fn dolphin_starts_from_a_copy_of_the_users_settings_and_leaves_theirs_alone() {
+    let r = Rig::new();
+    let theirs = r
+        .paths
+        .flatpak_app_dir("org.DolphinEmu.dolphin-emu")
+        .join("config/dolphin-emu");
+    std::fs::create_dir_all(&theirs).unwrap();
+    let pad = b"[GCPad1]\nDevice = SDL/0/Steam Virtual Gamepad\n";
+    std::fs::write(theirs.join("GCPadNew.ini"), pad).unwrap();
+    std::fs::write(theirs.join("Dolphin.ini"), b"[Core]\nGFXBackend = Vulkan\n").unwrap();
+
+    Dolphin.prepare_session(&r.paths).unwrap();
+    let ours = Dolphin::config_dir(&r.paths);
+    assert!(ours.starts_with(Dolphin.session_dir(&r.paths)));
+    assert_eq!(std::fs::read(ours.join("GCPadNew.ini")).unwrap(), pad);
+    assert!(ours.join("Dolphin.ini").is_file());
+    assert!(!ours.join("GFX.ini").exists(), "only files the user has");
+
+    // Romshelf's copy is its own from now on: a change there stays, and theirs is untouched.
+    std::fs::write(
+        ours.join("GCPadNew.ini"),
+        b"[GCPad1]\nDevice = changed by Romshelf\n",
+    )
+    .unwrap();
+    std::fs::write(
+        theirs.join("GCPadNew.ini"),
+        b"[GCPad1]\nDevice = changed by the user\n",
+    )
+    .unwrap();
+    Dolphin.prepare_session(&r.paths).unwrap();
+    assert_eq!(
+        std::fs::read(ours.join("GCPadNew.ini")).unwrap(),
+        b"[GCPad1]\nDevice = changed by Romshelf\n"
+    );
+    assert_eq!(
+        std::fs::read(theirs.join("GCPadNew.ini")).unwrap(),
+        b"[GCPad1]\nDevice = changed by the user\n"
+    );
 }

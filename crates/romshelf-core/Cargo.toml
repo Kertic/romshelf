@@ -23,3 +23,7 @@ keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "ve
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+signal-hook = "0.3"
+libc = "0.2"

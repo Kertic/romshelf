@@ -78,14 +78,31 @@ impl EmulatorAdapter for RetroArch {
         Ok(())
     }
 
-    fn launch_command(&self, rom: &Rom, session: &LaunchSession) -> Result<CommandSpec> {
+    /// `flatpak run --filesystem=<ROMs>:ro org.libretro.RetroArch -L <core> --appendconfig
+    /// <Romshelf's cfg> -f <rom>`: full screen, Romshelf's save folders, the user's own settings
+    /// otherwise.
+    fn launch_command(
+        &self,
+        rom: &Rom,
+        session: &LaunchSession,
+        paths: &Paths,
+    ) -> Result<CommandSpec> {
         let core = RetroArch::core_for(rom.system).ok_or_else(|| {
-            crate::Error::Invalid(format!("RetroArch has no core for {}", rom.system))
+            crate::Error::Invalid(format!("RetroArch has no core for {}.", rom.system.label()))
         })?;
-        let rom_path = session.rom_path.to_string_lossy();
         Ok(CommandSpec::new(
             "flatpak",
-            &["run", self.flatpak_id(), "-L", core, &rom_path],
+            &[
+                "run",
+                &session.filesystem_arg(),
+                self.flatpak_id(),
+                "-L",
+                &RetroArch::core_file(paths, core).to_string_lossy(),
+                "--appendconfig",
+                &RetroArch::append_config(paths).to_string_lossy(),
+                "-f",
+                &session.rom_path.to_string_lossy(),
+            ],
         ))
     }
 
