@@ -38,9 +38,12 @@ Status: **built; waiting for on-Deck checks and the two Confirm items.**
 
 ### Confirm on the Deck
 
-- **Where the RetroArch Flatpak keeps cores.** Assumed `~/.var/app/org.libretro.RetroArch/config/retroarch/cores` (its default `libretro_directory`). If EmuDeck changed `libretro_directory`, RetroArch still finds cores when stage 5 passes the full path with `-L`.
-- **Dolphin's user folder option:** `-u <folder>` (`--user`). Checked in stage 5 when it is first used.
-- That the buildbot's generic Linux cores load in the Flatpak RetroArch (they're what its own core updater downloads).
+- **Where the RetroArch Flatpak keeps cores: confirmed 2026-10-19.** On this Deck (EmuDeck), `libretro_directory = "~/.var/app/org.libretro.RetroArch/config/retroarch/cores"`, and snes9x, mgba and mupen64plus_next are already there (93 cores in all). EmuDeck points RetroArch's saves, states and BIOS at the SD card's `Emulation/` folder. Romshelf's append-config is only used for games Romshelf starts, so EmuDeck's setup is unaffected.
+- **Both emulators are installed** as user Flatpaks: `org.libretro.RetroArch` 1.19.1 and `org.DolphinEmu.dolphin-emu` 2407. The user has a `flathub` remote, and there's a system one too.
+- **Found and fixed on the Deck:** the first stage 4 build said both were "Not installed". Running from the AppImage, `flatpak` inherited the AppImage's `LD_LIBRARY_PATH` and failed with `symbol lookup error: /usr/lib/libmalcontent-0.so.0: undefined symbol: g_task_set_static_name`. The full list of variables was read from a running Romshelf. `process::host_command` now removes them, and the AppImage's folders from `XDG_DATA_DIRS`, for every host program: Flatpak, emulators and the browser.
+- **Dolphin's user folder option: confirmed 2026-10-19.** Dolphin 2407's `--help` (run with `QT_QPA_PLATFORM=offscreen`, since it needs a display otherwise) lists `-u USER, --user=USER  User folder path`, `-e <file>, --exec=<file>` and `-b, --batch` ("Run Dolphin without the user interface (Requires --exec…)"). These match what stage 5 will use. The Flatpak's command is `dolphin-emu-wrapper`.
+- **After the fix:** `romshelf emulators` on the Deck shows both as "Setup incomplete": installed by EmuDeck, with Romshelf's setup not yet run. Correct.
+- That the buildbot's generic Linux cores load in the Flatpak RetroArch (they're what its own core updater downloads). Not needed on this Deck, since the cores are already present.
 
 ### On-Deck checklist
 
