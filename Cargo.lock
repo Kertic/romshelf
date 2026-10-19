@@ -3572,7 +3572,7 @@ dependencies = [
 
 [[package]]
 name = "romshelf"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "clap",
  "gilrs",
@@ -3587,7 +3587,7 @@ dependencies = [
 
 [[package]]
 name = "romshelf-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
@@ -3605,7 +3605,7 @@ dependencies = [
 
 [[package]]
 name = "romshelf-testkit"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
