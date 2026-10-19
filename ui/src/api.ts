@@ -255,6 +255,38 @@ export interface SetupUpdate {
   message: string | null;
 }
 
+/** Progress and outcome while a game is prepared and played. */
+export interface LaunchUpdate {
+  rom_id: string;
+  kind: "step" | "progress" | "finished" | "failed";
+  step: "download" | "setup" | "save_check" | "controls" | "run" | "backup" | null;
+  /** "Downloading", "Setting up Dolphin", … */
+  label: string | null;
+  percent: number | null;
+  /** The emulator's exit code, when finished. */
+  code: number | null;
+  message: string | null;
+}
+
+/** Starts a game: downloads it and sets up its emulator if needed, then runs it. */
+export async function play(romId: string): Promise<void> {
+  if (inTauri()) await invoke("play", { romId });
+}
+
+/** The game `romshelf launch` opened this window for, or null for the full interface. */
+export async function launchTarget(): Promise<string | null> {
+  if (!inTauri()) {
+    const id = new URLSearchParams(location.search).get("launch");
+    return id;
+  }
+  return invoke<string | null>("launch_target");
+}
+
+export async function onLaunchUpdate(handler: (u: LaunchUpdate) => void): Promise<UnlistenFn> {
+  if (!inTauri()) return () => {};
+  return listen<LaunchUpdate>("launch-update", (e) => handler(e.payload));
+}
+
 /** Every emulator with its status. Checks Flatpak, so it can take a moment. */
 export async function emulators(): Promise<EmulatorView[]> {
   if (!inTauri()) {

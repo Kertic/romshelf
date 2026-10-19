@@ -359,6 +359,7 @@ impl EmulatorAdapter for NeedsBios {
         &self,
         _rom: &romshelf_core::model::Rom,
         _session: &romshelf_core::emulators::LaunchSession,
+        _paths: &Paths,
     ) -> romshelf_core::Result<romshelf_core::process::CommandSpec> {
         unreachable!()
     }

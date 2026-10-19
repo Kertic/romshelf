@@ -5,12 +5,15 @@ import {
   connectionStatus,
   download,
   emulators as listEmulators,
+  launchTarget,
   library,
   onLibraryChanged,
   onSyncStatus,
   onTransfer,
   onEmulatorSetup,
+  onLaunchUpdate,
   onUpdateReady,
+  play,
   quit,
   removeFromDeck,
   setupEmulator,
@@ -31,13 +34,14 @@ import { focusables, moveFocus, type Direction } from "./focus";
 import { Footer, type Hint } from "./Footer";
 import { GamepadSpike } from "./GamepadSpike";
 import { Emulators, type SetupState } from "./Emulators";
+import { LaunchWindow, type LaunchState } from "./LaunchWindow";
 import { Home } from "./Home";
 import type { Button } from "./input";
 import { nextTab } from "./library";
 import { RomDialog } from "./RomActions";
 import { useInput } from "./useInput";
 
-type Screen = "loading" | "first-run" | "home" | "emulators" | "spike";
+type Screen = "loading" | "first-run" | "home" | "emulators" | "launch" | "spike";
 
 const HOLD_TO_LEAVE_MS = 1000;
 
@@ -64,6 +68,8 @@ export function App() {
   const [emulatorError, setEmulatorError] = useState<string | null>(null);
   /** Emulator setups running or just finished, by emulator id. */
   const [setups, setSetups] = useState<Record<string, SetupState>>({});
+  /** A game being prepared or played, from Play or the launch window. */
+  const [launch, setLaunch] = useState<LaunchState | null>(null);
   const setBack = useCallback((b: BackAction | null) => {
     backRef.current = b;
     setBackState(b);
@@ -157,6 +163,32 @@ export function App() {
     };
   }, [loadEmulators]);
 
+  // Progress while a game is prepared; a finished game clears it, a failure keeps the reason.
+  useEffect(() => {
+    let live = true;
+    let unlisten: (() => void) | null = null;
+    onLaunchUpdate((u) => {
+      setLaunch((cur) => {
+        if (u.kind === "finished") return null;
+        const base: LaunchState = cur?.romId === u.rom_id ? cur : { romId: u.rom_id, label: null, percent: null, running: true, error: null };
+        if (u.kind === "failed") return { ...base, running: false, error: u.message ?? "The game couldn't start. Try again." };
+        if (u.kind === "step") return { ...base, label: u.label, percent: null, running: true, error: null };
+        return { ...base, percent: u.percent };
+      });
+    }).then((un) => (live ? (unlisten = un) : un()));
+    return () => {
+      live = false;
+      unlisten?.();
+    };
+  }, []);
+
+  const startPlay = useCallback((romId: string) => {
+    setLaunch({ romId, label: null, percent: null, running: true, error: null });
+    play(romId).catch((e) =>
+      setLaunch({ romId, label: null, percent: null, running: false, error: e?.message ?? `Couldn't start the game: ${String(e)}` }),
+    );
+  }, []);
+
   const startSetup = useCallback((id: string, repair = false) => {
     setSetups((all) => ({ ...all, [id]: { step: "Starting", percent: null, running: true, message: null, failed: false } }));
     setupEmulator(id, repair).catch((e) =>
@@ -234,18 +266,24 @@ export function App() {
       });
   }, [startSync]);
   useEffect(() => {
-    Promise.all([appInfo(), connectionStatus()])
-      .then(([i, s]) => {
+    Promise.all([appInfo(), connectionStatus(), launchTarget()])
+      .then(([i, s, target]) => {
         setInfo(i);
         setStatus(s);
-        if (s.ready) openLibrary();
+        if (target) {
+          // Opened by `romshelf launch`: just this game, then back to Steam.
+          setScreen("launch");
+          library().then(setEntries).catch(() => {});
+          startPlay(target);
+          setBack({ label: "Cancel", run: () => { void cancelDownload(target).finally(() => void quit()); } });
+        } else if (s.ready) openLibrary();
         else setScreen("first-run");
       })
       .catch((e) => {
         setError(`Couldn't read Romshelf's settings: ${String(e)}. Restart Romshelf.`);
         setScreen("home");
       });
-  }, [openLibrary]);
+  }, [openLibrary, startPlay, setBack]);
 
   // Read the hints from whatever holds focus: after pad moves, and on touch or mouse focus.
   const syncHint = useCallback(() => {
@@ -365,9 +403,23 @@ export function App() {
             reloadLibrary();
           }}
           onSetupEmulator={() => dialogEntry.emulator_id && startSetup(dialogEntry.emulator_id)}
+          onPlay={() => startPlay(dialogEntry.rom.id)}
+          launch={launch?.romId === dialogEntry.rom.id ? launch : undefined}
           setup={dialogEntry.emulator_id ? setups[dialogEntry.emulator_id] : undefined}
           onClose={closeDialog}
           setBack={setBack}
+        />
+      )}
+      {screen === "launch" && launch && (
+        <LaunchWindow
+          entry={entries?.find((e) => e.rom.id === launch.romId) ?? null}
+          launch={launch}
+          onRetry={() => startPlay(launch.romId)}
+          onOpenRomshelf={() => {
+            setBack(null);
+            setLaunch(null);
+            openLibrary();
+          }}
         />
       )}
       {screen === "emulators" && (

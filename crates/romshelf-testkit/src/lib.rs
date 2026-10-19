@@ -110,11 +110,23 @@ impl PackageRunner for FakePackageRunner {
 pub struct FakeProcessRunner {
     pub runs: Mutex<Vec<CommandSpec>>,
     script: Mutex<VecDeque<(i32, Duration)>>,
+    /// A file to look for each time a program "runs" (the launch lock).
+    watched: Mutex<Option<std::path::PathBuf>>,
+    existed: Mutex<Vec<bool>>,
 }
 
 impl FakeProcessRunner {
     pub fn push_exit(&self, code: i32, delay: Duration) {
         self.script.lock().unwrap().push_back((code, delay));
+    }
+
+    /// Records, at each run, whether `path` exists.
+    pub fn watch(&self, path: &Path) {
+        *self.watched.lock().unwrap() = Some(path.to_path_buf());
+    }
+
+    pub fn watched_existed(&self) -> Vec<bool> {
+        self.existed.lock().unwrap().clone()
     }
 
     pub fn runs(&self) -> Vec<CommandSpec> {
@@ -125,6 +137,9 @@ impl FakeProcessRunner {
 impl ProcessRunner for FakeProcessRunner {
     fn run_and_wait(&self, cmd: &CommandSpec) -> Result<i32> {
         self.runs.lock().unwrap().push(cmd.clone());
+        if let Some(p) = self.watched.lock().unwrap().as_ref() {
+            self.existed.lock().unwrap().push(p.exists());
+        }
         let (code, delay) = self
             .script
             .lock()

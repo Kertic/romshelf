@@ -5,10 +5,10 @@ use romshelf_core::emulators::setup::{self, SetupStep};
 use romshelf_core::emulators::{EmulatorAdapter, Registry, RetroArch};
 use romshelf_core::http::{HttpTransport, ReqwestTransport};
 use romshelf_core::paths::Paths;
-use romshelf_core::process::{FlatpakRunner, PackageRunner};
+use romshelf_core::process::{FlatpakRunner, PackageRunner, ProcessRunner, SystemProcessRunner};
 use romshelf_core::Result;
 use romshelf_testkit::connection::{simulate_browser, FakeConnection};
-use romshelf_testkit::{FakeHttp, FakePackageRunner};
+use romshelf_testkit::{FakeHttp, FakePackageRunner, FakeProcessRunner};
 use serde::Serialize;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -46,6 +46,12 @@ pub struct AppState {
     pub worker_busy: AtomicBool,
     /// Runs `flatpak` to detect and install emulators.
     pub runner: Arc<dyn PackageRunner>,
+    /// Starts emulators.
+    pub process: Arc<dyn ProcessRunner>,
+    /// A game is running (or being prepared) from this app; Play waits for it.
+    pub playing: Mutex<Option<String>>,
+    /// The game `romshelf launch` opened the launch window for.
+    pub launch_target: Mutex<Option<String>>,
     /// Fetches RetroArch cores.
     pub http: Arc<dyn HttpTransport>,
     /// Emulator ids whose setup is running.
@@ -77,6 +83,9 @@ impl AppState {
                 cancel: Arc::new(AtomicBool::new(false)),
                 worker_busy: AtomicBool::new(false),
                 runner: Arc::new(FlatpakRunner),
+                process: Arc::new(SystemProcessRunner::default()),
+                playing: Mutex::new(None),
+                launch_target: Mutex::new(None),
                 http: Arc::new(ReqwestTransport::new()?),
                 setups: Mutex::new(Vec::new()),
                 fake_http: None,
@@ -118,6 +127,11 @@ impl AppState {
         // RetroArch is installed and set up (cores in place); Dolphin is not, so its setup
         // can be tried. The simulated Flatpak installs with visible progress.
         let mut runner = FakePackageRunner::simulating(&[RetroArch.flatpak_id()]);
+        // A "game" that runs for five seconds and exits normally.
+        let fake_process = FakeProcessRunner::default();
+        for _ in 0..100 {
+            fake_process.push_exit(0, Duration::from_secs(5));
+        }
         runner.step_delay = Duration::from_millis(300);
         for core in RetroArch.required_cores() {
             let file = RetroArch::core_file(&paths, core);
@@ -146,6 +160,9 @@ impl AppState {
             cancel: Arc::new(AtomicBool::new(false)),
             worker_busy: AtomicBool::new(false),
             runner: Arc::new(runner),
+            process: Arc::new(fake_process),
+            playing: Mutex::new(None),
+            launch_target: Mutex::new(None),
             http: Arc::new(FakeHttp::default()),
             setups: Mutex::new(Vec::new()),
             fake_http: Some(http),

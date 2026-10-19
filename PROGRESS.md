@@ -1,5 +1,54 @@
 # Progress
 
+## Stage 5: launch pipeline (branch `stage-05-launch-pipeline`, on top of stage 4)
+
+Status: **built; waiting for on-Deck checks.**
+
+### Built
+
+- **`launch/mod.rs`, one pipeline** for every Steam shortcut (`romshelf launch --id <id>`, or `--rom gba/Kirby.gba`), the Play button and `romshelf doctor --id`:
+  1. Find the game. An unknown id is "Romshelf doesn't know a game called … Sync, then try again." (exit 2). A game gone from Drive, a system with no emulator, or a file the emulator can't run (the GameCube `.zip`) is a clear error, and nothing starts.
+  2. Download it if it isn't on the Deck, with progress.
+  3. Set up its emulator if Romshelf's setup hasn't run. A missing required BIOS stops here with what to add.
+  4. Check saves, then 5. write controls: placeholders until stages 6 and 7.
+  6. Start the emulator and wait. 7. Back up saves (placeholder), which runs whatever the exit code was.
+
+  Romshelf exits with the emulator's exit code unchanged. Whether a step is needed is read from the database only, so checking runs no Flatpak command.
+- **Emulator commands:**
+  - RetroArch: `flatpak run --filesystem=<storage root>:ro org.libretro.RetroArch -L <core file> --appendconfig <Romshelf's romshelf.cfg> -f <rom>`
+  - Dolphin: `flatpak run --filesystem=<storage root>:ro org.DolphinEmu.dolphin-emu -u <Romshelf's user folder> -b -C Dolphin.Display.Fullscreen=True -e <rom>`, using options confirmed from Dolphin's `--help` on the Deck.
+  - `--filesystem=…:ro` gives the sandbox read access to wherever ROMs are kept (home or an SD card) for that run only.
+- **Process runner:** waits for the emulator, so Steam's game tracking stays right. A stop signal to Romshelf (SIGTERM, SIGINT, SIGHUP, as when Steam ends the game) is passed on to the emulator, and Romshelf keeps waiting for it to exit. Its stderr still reaches the terminal, and the last 20 lines are kept for the log.
+- **`launch.lock`** holds Romshelf's process id while a game runs (the self-updater waits for it) and is removed afterwards.
+- **Launch log** at `~/.local/share/romshelf/logs/launch.log`: time, rom-id, emulator, duration and exit code per launch, plus the emulator's last lines when it failed.
+- **The launch window** (UI guide section 8):
+  - A game that is downloaded with its emulator ready starts with no window at all.
+  - Otherwise `romshelf launch` opens a full-screen window: small cover, title, the step ("Downloading", "Setting up Dolphin") and a progress bar. It hides when the game starts, and exits with the emulator's code when the game ends.
+  - On an error it shows the reason, **Try again** and **Open Romshelf**. B cancels and exits.
+- **Play:** for a downloaded game with its emulator ready, **Play** is the first action in the game's actions dialog. It shows the step while starting, and the reason if it fails. When the game ends you're back in Romshelf.
+- **`romshelf doctor --id <id>`** lists each step a launch would take, with the exact emulator command, and changes nothing.
+- **Sharing the database:** it now waits up to 5 s for another process's write, so a launch from Steam works while Romshelf is open.
+- **Fake mode:** "games" run for five seconds and exit normally.
+
+### Tests
+
+16 launch tests: RetroArch's and Dolphin's exact command lines; exit codes 0 and 3 returned unchanged; a ready game goes straight to the emulator with no window needed; download first; setup first; download then setup then launch; `--id` and `--rom` find the same game; an unknown id named, with nothing started; gone from Drive; no emulator, and an unrecognized file; backup after a failed exit with the save check and controls before the run; the launch lock held during the run and gone after; the launch log; `doctor` writing nothing, starting nothing and calling no Flatpak; two database connections sharing a file. Plus 5 UI tests for the launch window and Play.
+
+### Choices made
+
+- **One process per launch.** `romshelf launch` doesn't hand the game to an already open Romshelf; both can run at once, sharing the database. That keeps Steam's process tracking simple: the shortcut's own process waits for the game.
+- **The launch window hides while the game runs**, so the emulator has the screen; it shows again only if something fails.
+- **`romshelf doctor` without `--id`** (the whole-setup check) is stage 10's.
+- **Play isn't offered before downloading.** The dialog's first action is **Download to Deck**, or **Set up {emulator}**, until the game can start straight away. A Steam shortcut still does everything in one go.
+
+### On-Deck checklist
+
+- [ ] Play from the Library starts the game full screen; quitting returns to Romshelf.
+- [ ] From the Desktop Mode terminal, `~/Applications/romshelf.AppImage launch --id <id>` starts the same game (ids: `romshelf doctor --id <id>` explains one; your Twilight Princess is `gamecube-2260f1ec`).
+- [ ] Add a non-Steam shortcut with target `~/Applications/romshelf.AppImage` and launch options `launch --id <id>`; it starts the game from Game Mode and returns to Steam on quit.
+- [ ] Launch a game that isn't downloaded from such a shortcut: the progress window appears, then the game.
+- [ ] The Steam overlay and the Deck's quick-access menu work while the game runs.
+
 ## Stage 4: emulator registry and setup (branch `stage-04-emulator-setup`, on top of stage 3)
 
 Status: **passed on the Deck 2026-10-19** (you counted it as passed; the "needs setting up" screen wasn't seen because Dolphin was already set up). Both Confirm items checked.

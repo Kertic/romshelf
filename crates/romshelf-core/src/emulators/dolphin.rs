@@ -32,12 +32,28 @@ impl EmulatorAdapter for Dolphin {
             .join("data/romshelf-user")
     }
 
-    fn launch_command(&self, _rom: &Rom, session: &LaunchSession) -> Result<CommandSpec> {
-        // `-b` exits Dolphin when the game stops; `-e` runs the file. Confirm in stage 5.
-        let rom_path = session.rom_path.to_string_lossy();
+    /// `-u` Romshelf's user folder, `-b` no Dolphin window (quits with the game), full screen,
+    /// `-e` the game. Options checked against Dolphin 2407's `--help` on the Deck.
+    fn launch_command(
+        &self,
+        _rom: &Rom,
+        session: &LaunchSession,
+        paths: &Paths,
+    ) -> Result<CommandSpec> {
         Ok(CommandSpec::new(
             "flatpak",
-            &["run", self.flatpak_id(), "-b", "-e", &rom_path],
+            &[
+                "run",
+                &session.filesystem_arg(),
+                self.flatpak_id(),
+                "-u",
+                &self.session_dir(paths).to_string_lossy(),
+                "-b",
+                "-C",
+                "Dolphin.Display.Fullscreen=True",
+                "-e",
+                &session.rom_path.to_string_lossy(),
+            ],
         ))
     }
 

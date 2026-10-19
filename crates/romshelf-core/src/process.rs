@@ -126,7 +126,14 @@ pub trait PackageRunner: Send + Sync {
 
 /// Starts a program (an emulator) and waits for it to exit.
 pub trait ProcessRunner: Send + Sync {
+    /// Starts the program and waits for it to exit. A stop signal sent to Romshelf (Steam
+    /// ending the game, Ctrl+C) is passed on to the program, and Romshelf keeps waiting.
     fn run_and_wait(&self, cmd: &CommandSpec) -> Result<i32>;
+
+    /// The last lines the most recent program wrote to stderr, for error reports.
+    fn last_output(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 pub struct FlatpakRunner;
@@ -195,17 +202,96 @@ impl PackageRunner for FlatpakRunner {
     }
 }
 
-pub struct SystemProcessRunner;
+#[derive(Default)]
+pub struct SystemProcessRunner {
+    tail: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+/// Lines of stderr kept for error reports.
+const TAIL_LINES: usize = 20;
 
 impl ProcessRunner for SystemProcessRunner {
     fn run_and_wait(&self, cmd: &CommandSpec) -> Result<i32> {
-        let status = host_command(&cmd.program)
+        use std::io::{BufRead, Write};
+        let mut child = host_command(&cmd.program)
             .args(&cmd.args)
             .envs(cmd.env.iter().map(|(k, v)| (k, v)))
-            .status()?;
+            .stderr(std::process::Stdio::piped())
+            .spawn()?;
+        // Stderr still reaches the terminal (and Steam's log); the last lines are kept too.
+        let tail = std::sync::Arc::clone(&self.tail);
+        if let Ok(mut t) = tail.lock() {
+            t.clear();
+        }
+        let reader = child.stderr.take().map(|err| {
+            std::thread::spawn(move || {
+                for line in std::io::BufReader::new(err).lines().map_while(|l| l.ok()) {
+                    let _ = writeln!(std::io::stderr(), "{line}");
+                    if let Ok(mut t) = tail.lock() {
+                        t.push(line);
+                        let excess = t.len().saturating_sub(TAIL_LINES);
+                        t.drain(..excess);
+                    }
+                }
+            })
+        });
+        let stop = stop_requests()?;
+        let mut forwarded = false;
+        let status = loop {
+            if let Some(status) = child.try_wait()? {
+                break status;
+            }
+            if !forwarded && stop.load(std::sync::atomic::Ordering::SeqCst) {
+                forwarded = true;
+                ask_to_stop(&child);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        };
+        if let Some(r) = reader {
+            let _ = r.join();
+        }
         Ok(status.code().unwrap_or(-1))
     }
+
+    fn last_output(&self) -> Vec<String> {
+        self.tail.lock().map(|t| t.clone()).unwrap_or_default()
+    }
 }
+
+/// A flag set when Romshelf is asked to stop (SIGTERM, SIGINT, SIGHUP).
+#[cfg(unix)]
+fn stop_requests() -> Result<std::sync::Arc<std::sync::atomic::AtomicBool>> {
+    let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    for signal in [
+        signal_hook::consts::SIGTERM,
+        signal_hook::consts::SIGINT,
+        signal_hook::consts::SIGHUP,
+    ] {
+        signal_hook::flag::register(signal, std::sync::Arc::clone(&flag))?;
+    }
+    Ok(flag)
+}
+
+#[cfg(not(unix))]
+fn stop_requests() -> Result<std::sync::Arc<std::sync::atomic::AtomicBool>> {
+    Ok(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+        false,
+    )))
+}
+
+/// Passes a stop on to the program, which then exits in its own time.
+#[cfg(unix)]
+fn ask_to_stop(child: &std::process::Child) {
+    if let Ok(pid) = i32::try_from(child.id()) {
+        // SAFETY: kill(2) with a pid we started and a valid signal number.
+        unsafe {
+            libc::kill(pid, libc::SIGTERM);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn ask_to_stop(_child: &std::process::Child) {}
 
 #[cfg(test)]
 mod tests {
