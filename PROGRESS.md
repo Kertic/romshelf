@@ -2,7 +2,7 @@
 
 ## Stage 5: launch pipeline (branch `stage-05-launch-pipeline`, on top of stage 4)
 
-Status: **built; waiting for on-Deck checks.**
+Status: **on-Deck checks passed 2026-10-19.**
 
 ### Built
 
@@ -49,9 +49,9 @@ Status: **built; waiting for on-Deck checks.**
 
 - [x] Play from the Library starts the game full screen; quitting returns to Romshelf. 2026-10-19: Twilight Princess in Dolphin, with your controls (copied settings); quit with View + Menu (EmuDeck's Exit hotkey, from the copied Hotkeys.ini). Log: `gamecube-2260f1ec dolphin 1051s exit 0`.
 - [x] From the Desktop Mode terminal, `~/Applications/romshelf.AppImage launch --id <id>` starts the same game (ids: `romshelf doctor --id <id>` explains one; your Twilight Princess is `gamecube-2260f1ec`). 2026-10-19: started Dolphin straight away with no window. Controls don't respond when started outside Steam: the copied Dolphin settings use the controller Steam creates for games it launches (`SDL/0/Steam Virtual Gamepad`). Expected; Steam shortcuts have it.
-- [ ] Add a non-Steam shortcut with target `~/Applications/romshelf.AppImage` and launch options `launch --id <id>`; it starts the game from Game Mode and returns to Steam on quit.
-- [ ] Launch a game that isn't downloaded from such a shortcut: the progress window appears, then the game.
-- [ ] The Steam overlay and the Deck's quick-access menu work while the game runs.
+- [x] Add a non-Steam shortcut with target `~/Applications/romshelf.AppImage` and launch options `launch --id <id>`; it starts the game from Game Mode and returns to Steam on quit. 2026-10-19: you confirmed it on the Deck (Twilight Princess, controls working).
+- [x] Launch a game that isn't downloaded from such a shortcut: the progress window appears, then the game. 2026-10-19: you confirmed it (Kirby, downloaded at 15:35 by the shortcut). Its play wasn't in the launch log, which suggests Steam ended Romshelf forcefully on "Exit game" before it could log. To check: stage 6's backup after the game must survive that.
+- [x] The Steam overlay and the Deck's quick-access menu work while the game runs. 2026-10-19: the Steam button menu works in game.
 
 ## Stage 4: emulator registry and setup (branch `stage-04-emulator-setup`, on top of stage 3)
 
@@ -107,7 +107,7 @@ Status: **passed on the Deck 2026-10-19** (you counted it as passed; the "needs 
 
 ## Stage 3: download, remove and storage (branch `stage-03-download-delete`)
 
-Status: **built; waiting for on-Deck checks.**
+Status: **on-Deck checks passed 2026-10-19.**
 
 ### Built
 
