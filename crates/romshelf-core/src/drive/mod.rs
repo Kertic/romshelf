@@ -1,9 +1,14 @@
-//! Google Drive seam. The Google implementation arrives in stage 1; the fake is in `romshelf-testkit`.
+//! Google Drive seam. `google` is the real client; the fake is in `romshelf-testkit`.
+
+pub mod google;
+pub mod scaffold;
 
 use crate::Result;
 use serde::{Deserialize, Serialize};
 
 pub const FOLDER_MIME: &str = "application/vnd.google-apps.folder";
+/// Drive's alias for the top of My Drive.
+pub const ROOT: &str = "root";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DriveFile {
@@ -22,6 +27,13 @@ impl DriveFile {
     }
 }
 
+/// The signed-in Google account.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Account {
+    pub email: String,
+    pub name: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Change {
     pub file_id: String,
@@ -36,8 +48,11 @@ pub struct ChangePage {
 }
 
 pub trait DriveClient: Send + Sync {
+    fn about(&self) -> Result<Account>;
     fn create_folder(&self, name: &str, parent: &str) -> Result<DriveFile>;
     fn create_file(&self, name: &str, parent: &str, bytes: &[u8]) -> Result<DriveFile>;
+    /// Replaces a file's content, keeping its id.
+    fn update_content(&self, id: &str, bytes: &[u8]) -> Result<DriveFile>;
     /// Children of a folder, not including trashed files.
     fn list(&self, parent: &str) -> Result<Vec<DriveFile>>;
     fn get(&self, id: &str) -> Result<DriveFile>;

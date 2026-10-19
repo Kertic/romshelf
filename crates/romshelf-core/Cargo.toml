@@ -9,6 +9,13 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 rusqlite.workspace = true
+url.workspace = true
+base64 = "0.22"
+sha2 = "0.10"
+getrandom = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+# Secret Service on Linux (dbus built from source so the AppImage needs no system libdbus headers).
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "vendored", "windows-native", "apple-native"] }
 
 [dev-dependencies]
 tempfile.workspace = true

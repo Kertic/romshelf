@@ -57,6 +57,98 @@ export async function quit(): Promise<void> {
   else window.close();
 }
 
+export interface ConnectionStatus {
+  client_configured: boolean;
+  signed_in: boolean;
+  account: string | null;
+  /** "My Drive / Games / Emulation" */
+  drive_folder: string | null;
+  ready: boolean;
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+}
+
+export interface SetupDone {
+  path: string;
+  tree: string[];
+}
+
+/** An error from a Rust command: a kind to branch on and a sentence for the user. */
+export interface UiError {
+  kind: "no_browser" | "cancelled" | "timeout" | "offline" | "auth" | "needs_update" | "error";
+  message: string;
+}
+
+export function asUiError(e: unknown): UiError {
+  if (e && typeof e === "object" && "kind" in e && "message" in e) return e as UiError;
+  return { kind: "error", message: `Something went wrong: ${String(e)}. Try again.` };
+}
+
+/** In a plain browser, add `?first-run` to the address to preview the first-run screens. */
+const previewFirstRun = (): boolean =>
+  typeof location !== "undefined" && new URLSearchParams(location.search).has("first-run");
+
+export async function connectionStatus(): Promise<ConnectionStatus> {
+  if (!inTauri()) {
+    const first = previewFirstRun();
+    return {
+      client_configured: true,
+      signed_in: !first,
+      account: first ? null : "player@example.com",
+      drive_folder: first ? null : "My Drive / Emulation",
+      ready: !first,
+    };
+  }
+  return invoke<ConnectionStatus>("connection_status");
+}
+
+/** Opens the browser for Google sign-in and resolves with the account address. */
+export async function authLogin(): Promise<string> {
+  if (!inTauri()) {
+    await new Promise((r) => setTimeout(r, 1500));
+    return "player@example.com";
+  }
+  return invoke<string>("auth_login");
+}
+
+export async function authCancel(): Promise<void> {
+  if (inTauri()) await invoke("auth_cancel");
+}
+
+const PREVIEW_FOLDERS: Record<string, Folder[]> = {
+  root: [
+    { id: "games", name: "Games" },
+    { id: "photos", name: "Photos" },
+    { id: "work", name: "Work" },
+  ],
+  games: [{ id: "retro", name: "Retro" }],
+};
+
+export async function driveFolders(parent: string): Promise<Folder[]> {
+  if (!inTauri()) return PREVIEW_FOLDERS[parent] ?? [];
+  return invoke<Folder[]>("drive_folders", { parent });
+}
+
+/** Creates the Emulation tree under `parent`; `location` is the parent's display path. */
+export async function driveSetup(parent: string, location: string): Promise<SetupDone> {
+  if (!inTauri()) {
+    return {
+      path: `${location} / Emulation`,
+      tree: ["Emulation/", "  roms/      snes, gba, n64, ps2, gamecube", "  saves/", "  states/", "  bios/      snes, gba, n64, ps2, gamecube", "  .romshelf/"],
+    };
+  }
+  return invoke<SetupDone>("drive_setup", { parent, location });
+}
+
+/** Each folder path as setup reaches it. */
+export async function onSetupProgress(handler: (path: string) => void): Promise<UnlistenFn> {
+  if (!inTauri()) return () => {};
+  return listen<string>("setup-progress", (e) => handler(e.payload));
+}
+
 export async function onGilrs(handler: (s: GilrsSnapshot) => void): Promise<UnlistenFn> {
   if (!inTauri()) return () => {};
   return listen<GilrsSnapshot>("gilrs", (e) => handler(e.payload));
