@@ -2,7 +2,7 @@
 
 ## Stage 1: Google Drive connection (branch `stage-01-drive-connection`)
 
-Status: **built; waiting for on-Deck checks.**
+Status: **on-Deck checks passed 2026-10-18, except the weekly re-sign-in (due about 2026-10-25).**
 
 ### Built
 
@@ -48,17 +48,17 @@ Status: **built; waiting for on-Deck checks.**
 
 Before these, follow `docs/google-setup.md` to create the client and run `auth set-client`.
 
-- [ ] `auth login` opens a browser on the Deck and completes. Record whether this works from Game Mode or only from Desktop Mode.
-- [ ] The folder tree appears in Google Drive at the chosen location.
-- [ ] Upload a small file to `roms/gba/` through the Drive website from another device, then confirm Romshelf can list it: `auth status` shows `gba 1` under "Files in roms/". This proves the scope decision.
-- [ ] Quit and reopen: still signed in. Check in both Desktop Mode and Game Mode.
+- [x] `auth login` opens a browser on the Deck and completes. Record whether this works from Game Mode or only from Desktop Mode. 2026-10-18: the interface's sign-in, started from Steam in Desktop Mode, opened Chrome and completed. Game Mode: to be seen at the first weekly expiry.
+- [x] The folder tree appears in Google Drive at the chosen location. 2026-10-18: created under My Drive / EmuSuite.
+- [x] Upload a small file to `roms/gba/` through the Drive website from another device, then confirm Romshelf can list it: `auth status` shows `gba 1` under "Files in roms/". This proves the scope decision. 2026-10-18: files uploaded through the Drive website to `roms/gba/` and `roms/gamecube/` show as `gamecube 1, gba 1`.
+- [x] Quit and reopen: still signed in. Check in both Desktop Mode and Game Mode. 2026-10-18: reopened from Steam in Game Mode, it went straight to the library.
 - [ ] The project stays in "Testing" (your choice, 2026-10-18), so instead of "eight days later: still signed in": after about seven days Romshelf says the sign-in expired, and signing in again works without setting up the folder again.
 
 Results:
 
-- Browser from Game Mode:
-- Keyring in Game Mode:
-- KWallet prompt:
+- Browser from Game Mode: not tried yet; signed in from Desktop Mode. Will show at the first weekly expiry.
+- Keyring in Game Mode: not an issue on this Deck. Signing in from the interface in Desktop Mode saved the client and token to the 0600 file (`~/.config/romshelf/token.json`), not KWallet, and Game Mode reads them.
+- KWallet prompt: none.
 
 ## Stage 0: foundations (branch `stage-00-foundations`)
 
