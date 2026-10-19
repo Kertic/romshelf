@@ -31,6 +31,20 @@ pub struct CommandOutput {
 /// Runs `flatpak` with the given arguments and captures output.
 pub trait PackageRunner: Send + Sync {
     fn flatpak(&self, args: &[&str]) -> Result<CommandOutput>;
+
+    /// Like `flatpak`, but passes each piece of output (split at `\r` and `\n`, which Flatpak
+    /// uses for progress) to `on_output` as it arrives.
+    fn flatpak_streaming(
+        &self,
+        args: &[&str],
+        on_output: &mut dyn FnMut(&str),
+    ) -> Result<CommandOutput> {
+        let out = self.flatpak(args)?;
+        for piece in out.stdout.split(['\r', '\n']).filter(|p| !p.is_empty()) {
+            on_output(piece);
+        }
+        Ok(out)
+    }
 }
 
 /// Starts a program (an emulator) and waits for it to exit.
@@ -47,6 +61,59 @@ impl PackageRunner for FlatpakRunner {
             code: out.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        })
+    }
+
+    fn flatpak_streaming(
+        &self,
+        args: &[&str],
+        on_output: &mut dyn FnMut(&str),
+    ) -> Result<CommandOutput> {
+        use std::io::Read;
+        let mut child = std::process::Command::new("flatpak")
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()?;
+        // Stderr is read on its own thread so a chatty install can't block on a full pipe.
+        let mut err_pipe = child.stderr.take();
+        let err_thread = std::thread::spawn(move || {
+            let mut s = String::new();
+            if let Some(e) = err_pipe.as_mut() {
+                let _ = e.read_to_string(&mut s);
+            }
+            s
+        });
+        let mut stdout = String::new();
+        let mut pending = String::new();
+        if let Some(mut out) = child.stdout.take() {
+            let mut buf = [0u8; 4096];
+            loop {
+                let n = out.read(&mut buf)?;
+                if n == 0 {
+                    break;
+                }
+                let text = String::from_utf8_lossy(&buf[..n]);
+                stdout.push_str(&text);
+                pending.push_str(&text);
+                while let Some(i) = pending.find(['\r', '\n']) {
+                    let piece: String = pending.drain(..=i).collect();
+                    let piece = piece.trim_end_matches(['\r', '\n']);
+                    if !piece.is_empty() {
+                        on_output(piece);
+                    }
+                }
+            }
+        }
+        if !pending.is_empty() {
+            on_output(&pending);
+        }
+        let status = child.wait()?;
+        Ok(CommandOutput {
+            code: status.code().unwrap_or(-1),
+            stdout,
+            stderr: err_thread.join().unwrap_or_default(),
         })
     }
 }

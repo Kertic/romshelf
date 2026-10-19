@@ -106,6 +106,14 @@ impl FakeHttp {
             }));
     }
 
+    /// A response with a binary body, such as a zipped core.
+    pub fn push_bytes(&self, status: u16, body: Vec<u8>) {
+        self.script
+            .lock()
+            .unwrap()
+            .push_back(Scripted::Response(HttpResponse { status, body }));
+    }
+
     pub fn push_network_error(&self, message: &str) {
         self.script
             .lock()
