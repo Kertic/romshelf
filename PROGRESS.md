@@ -2,7 +2,7 @@
 
 ## Stage 0: foundations (branch `stage-00-foundations`)
 
-Status: **built; waiting for on-Deck checks.**
+Status: **done; on-Deck checks passed 2026-10-18.**
 
 ### Built
 
@@ -45,13 +45,13 @@ mkdir -p ~/Applications && cd ~/Downloads && unzip -o romshelf-appimage.zip && m
 
 Add to Steam: Steam → Games → Add a Non-Steam Game → Browse → `~/Applications/romshelf.AppImage`. To see the fixture library, set the shortcut's launch options to `ROMSHELF_FAKE=1 %command%`.
 
-- [ ] The AppImage starts from Desktop Mode (double-click, or `~/Applications/romshelf.AppImage` in Konsole).
-- [ ] Added to Steam, it starts in Game Mode, fills the screen, and returns to Steam on exit ("Quit Romshelf").
-- [ ] Spike A: on "Open gamepad test", D-pad, face buttons, bumpers and sticks all register. Note which path (browser API, `gilrs`, or both) shows them and which one the header says navigation uses.
-- [ ] Fonts render as in the screenshots (`docs/kit/ui/screens/01-library.png`).
+- [x] The AppImage starts from Desktop Mode (double-click, or `~/Applications/romshelf.AppImage` in Konsole). 2026-10-18: started over SSH with `ROMSHELF_FAKE=1`; full screen, eight fixture tiles.
+- [x] Added to Steam, it starts in Game Mode, fills the screen, and returns to Steam on exit ("Quit Romshelf").
+- [x] Spike A: on "Open gamepad test", D-pad, face buttons, bumpers and sticks all register. Note which path (browser API, `gilrs`, or both) shows them and which one the header says navigation uses.
+- [x] Fonts render as in the screenshots (`docs/kit/ui/screens/01-library.png`). 2026-10-18: sans and mono faces match in a Desktop Mode screenshot.
 
 Results:
 
-- Spike A (input path):
-- Spike B (Game Mode):
-- `WEBKIT_DISABLE_DMABUF_RENDERER` needed?:
+- Spike A (input path): 2026-10-18: D-pad, face buttons, bumpers and sticks register on both the browser Gamepad API and `gilrs`. Navigation locks to whichever source reports first, so either works; no change needed.
+- Spike B (Game Mode): 2026-10-18: starts from a non-Steam shortcut, fills the screen, and "Quit Romshelf" returns to Steam.
+- `WEBKIT_DISABLE_DMABUF_RENDERER` needed?: Not on this Deck: with it set to `0` in Game Mode the UI still renders. Kept as a harmless default.
