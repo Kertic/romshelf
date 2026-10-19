@@ -69,6 +69,16 @@ impl Paths {
         self.config_dir.join("token.json")
     }
 
+    /// When updates were last checked, and any version rolled back from.
+    pub fn update_state_file(&self) -> PathBuf {
+        self.data_dir.join("update.json")
+    }
+
+    /// Present while `romshelf launch` runs; the updater waits for it.
+    pub fn launch_lock(&self) -> PathBuf {
+        self.data_dir.join("launch.lock")
+    }
+
     pub fn saves_dir(&self) -> PathBuf {
         self.data_dir.join("saves")
     }
@@ -99,6 +109,8 @@ impl Paths {
             self.log_dir(),
             self.settings_file(),
             self.token_file(),
+            self.update_state_file(),
+            self.launch_lock(),
             self.saves_dir(),
             self.states_dir(),
         ]

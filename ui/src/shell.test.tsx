@@ -4,7 +4,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "./App";
 import { Footer } from "./Footer";
-import { tileStatus } from "./Home";
+import { Home, tileStatus } from "./Home";
 import type { LibraryEntry } from "./api";
 
 afterEach(cleanup);
@@ -98,5 +98,17 @@ describe("tile status", () => {
       warn: true,
     });
     expect(tileStatus({ ...base, rom: { ...base.rom, recognized: false } }).text).toBe("Unrecognized file");
+  });
+});
+
+describe("update notice", () => {
+  const props = { info: null, entries: [], error: null, driveFolder: null, onOpenSpike: () => {}, onQuit: () => {} };
+  it("says when a newer version is ready", () => {
+    render(<Home {...props} newVersion="0.2.0" />);
+    expect(screen.getByRole("status").textContent).toBe("Romshelf 0.2.0 is ready. Restart Romshelf to use it.");
+  });
+  it("is absent otherwise", () => {
+    render(<Home {...props} newVersion={null} />);
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });

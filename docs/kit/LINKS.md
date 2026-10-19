@@ -12,6 +12,10 @@ Status column: **Checked** means the page was opened on 10 October 2026 and says
 | https://v2.tauri.app/develop/tests/webdriver/ | WebDriver end-to-end testing; Linux supported | Checked |
 | https://v2.tauri.app/distribute/appimage/ | Packaging as an AppImage | Checked |
 | https://docs.rs/gilrs | Rust gamepad library, the fallback input path | Checked |
+| https://docs.github.com/en/rest/releases/releases#get-the-latest-release | Self-update feed: `tag_name`, `assets[].name`, `assets[].url` | Not checked (Confirm) |
+| https://docs.github.com/en/rest/releases/assets#get-a-release-asset | Asset download with `Accept: application/octet-stream` (redirects to storage) | Not checked (Confirm) |
+| https://docs.appimage.org/packaging-guide/environment-variables.html | `APPIMAGE`: path of the running AppImage, used as the file to replace | Not checked (Confirm) |
+| https://v2.tauri.app/reference/config/#version | `version` may be left out of `tauri.conf.json` to use Cargo's | Not checked (Confirm) |
 
 ## Google sign-in and Drive (Stages 1 to 3, 6)
 

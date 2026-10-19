@@ -1,5 +1,50 @@
 # Progress
 
+## Stage 10a: self-update, pulled forward (branch `stage-10a-self-update`, on top of stage 1)
+
+Status: **built; needs the signing key and a first release before on-Deck checks.**
+
+Only stage 10's step 3 (self-update) and step 9 (release workflow), brought forward so a Deck stays current without copying builds over SSH. The rest of stage 10 is unchanged and still comes last.
+
+### Built
+
+- `update.rs`: reads the latest GitHub release, ignores same, older and rolled-back versions, downloads `romshelf-update.json` and its `.sig`, verifies the Ed25519 signature against the public key built in from `crates/romshelf-core/update-key.pub`, requires the manifest's version to match the tag, downloads the AppImage, checks size, SHA-256 and the ELF header, writes it beside the current file, then swaps with renames, keeping `romshelf.AppImage.previous` (put back if the second rename fails). Checks at most once a day, retries at the next start after a failure, and does nothing while `launch.lock` names a live process (stage 5 will write it). Off when the build has no key or isn't running from an AppImage (`APPIMAGE` unset).
+- Rollback swaps `.previous` back and records the rolled-back version so it isn't installed again; the next newer release is.
+- CLI: `romshelf update` (check and install now), `--rollback`, `--set-token` (read-only GitHub token while the repository is private; kept in the token store).
+- Interface: a background check when the interface opens (not in fake mode, never from `romshelf launch`); a line in the top band, "Romshelf {version} is ready. Restart Romshelf to use it."
+- `.github/workflows/release.yml`: on a `v*` tag, runs the full CI build (`ci.yml` is now reusable), refuses a tag that doesn't match `Cargo.toml`, writes and signs the manifest with the `UPDATE_SIGNING_KEY` secret, verifies the signature against the committed public key, and publishes the release.
+- `scripts/new-update-key.sh`: creates the key, writes the public half, stores the private half as the secret and saves a backup outside the repository.
+- `tauri.conf.json` no longer has its own version; Cargo's workspace version is the only one.
+- `docs/releasing.md`: one-time setup and per-release steps.
+
+### Tests
+
+17 updater tests (18 on Linux): newer release installed with the previous kept and the file executable; same and older ignored with no download; bad checksum; forged signature rejected before the AppImage is fetched; a signed manifest replayed under a newer tag; a non-AppImage download; an interrupted download leaves the current version and the check is retried next start; once a day unless forced; skipped while a launch runs; a stale lock from a crashed launch ignored (Linux); rollback restores the old file and skips the bad version but installs a later one; rollback with nothing kept; token sent; private repository without a token explains `--set-token`; release missing a file; no key → off; an OpenSSL-made signature (as CI makes them) verifies. Plus CLI parsing and four `romshelf update` command tests, and two UI tests for the notice.
+
+### Choices made
+
+- A small updater in `romshelf-core` instead of Tauri's updater plugin: the plugin keeps no previous version for rollback, and its logic can't be tested with our fakes.
+- The release is signed (Ed25519, OpenSSL in CI, `ed25519-dalek` on the Deck), not just checksummed, so a tampered release is refused even though the checksum travels with it.
+- `romshelf update` is a new subcommand (added to CLAUDE.md's fixed decision 1).
+- The new version is installed at once and runs from the next start; nothing restarts Romshelf by itself.
+- Downloads go through the same `HttpTransport` as Drive, so the AppImage is held in memory (about 80 MB) before it's written.
+
+### Confirm
+
+- GitHub's release JSON and asset downloads (`Accept: application/octet-stream`, redirect to storage without the token) behave as coded; private-repository downloads with a fine-grained token.
+- The AppImage runtime sets `APPIMAGE` on SteamOS, including when started from a Steam shortcut.
+- Tauri reads the version from Cargo when `tauri.conf.json` has none (the AppImage's file name and About show the right version).
+
+### On-Deck checklist
+
+Before these: run `scripts/new-update-key.sh`, commit the public key, set the GitHub token on the Deck (`update --set-token`) while the repository is private, merge, tag a release (say `v0.1.1`), and install that build by hand once. Then publish `v0.1.2`.
+
+- [ ] Open Romshelf: within a minute the top bar says "Romshelf 0.1.2 is ready". `~/Applications/romshelf.AppImage.previous` exists.
+- [ ] Quit and open it again: it runs 0.1.2 (`~/Applications/romshelf.AppImage --version`).
+- [ ] Existing Steam shortcuts (Romshelf itself) still launch.
+- [ ] `romshelf update --rollback` puts 0.1.1 back, and opening Romshelf doesn't reinstall 0.1.2.
+- [ ] With Wi-Fi off, Romshelf opens normally and updates the next time it's online.
+
 ## Stage 1: Google Drive connection (branch `stage-01-drive-connection`)
 
 Status: **on-Deck checks passed 2026-10-18, except the weekly re-sign-in (due about 2026-10-25).**

@@ -397,3 +397,8 @@ button:focus {
   flex-direction: column;
   gap: 12px;
 }
+
+.update-note {
+  font-size: 13px;
+  color: var(--accent);
+}
