@@ -16,7 +16,7 @@ Status: **built; waiting for on-Deck checks.**
 - CLI: `auth set-client --file <json>` or `--client-id` (secret prompted), `auth login` (prints the address if no browser opens), `auth logout`, `auth status` (exit 0 when signed in; it also counts the files in each `roms/<system>/` so the scope check can be done before stage 2).
 - UI: first run per guide §6: welcome, sign in (waiting, cancel, "Can't see a browser?", Desktop Mode steps, set-client instructions when no client is stored), folder browser (A enters, B goes up, path in mono, note when an `Emulation` folder already exists), progress, done with the tree. The library's empty state shows the chosen folder.
 - `ROMSHELF_FAKE=1` starts signed in on a fake Drive; add `ROMSHELF_FAKE_FIRST_RUN=1` to walk the first run against it. In a plain browser, `?first-run` previews it.
-- `docs/google-setup.md`: Cloud project, Drive API, consent screen, **In production**, Desktop client, `set-client` over SSH.
+- `docs/google-setup.md`: Cloud project, Drive API, consent screen, Testing (weekly sign-in, add yourself as a test user) or In production, Desktop client, `set-client` over SSH.
 
 ### Tests
 
@@ -24,6 +24,7 @@ Status: **built; waiting for on-Deck checks.**
 
 ### Choices made (not covered by the kit)
 
+- The Google project may stay in "Testing" (your choice): sign-in then lasts seven days. The kit's "In production" remains in the setup guide as the other option.
 - Kept the stage 0 trait names (`list`, `create_file`, `download(offset)`) instead of the stage file's (`list_children`, `upload`, `download_range`); added `about` and `update_content`.
 - `HttpTransport` is a new seam (real `ReqwestTransport`, fake `FakeHttp`); added to CLAUDE.md's table.
 - The client ID and secret live in the token store too (key `google_client`), not in a plain config file.
@@ -51,7 +52,7 @@ Before these, follow `docs/google-setup.md` to create the client and run `auth s
 - [ ] The folder tree appears in Google Drive at the chosen location.
 - [ ] Upload a small file to `roms/gba/` through the Drive website from another device, then confirm Romshelf can list it: `auth status` shows `gba 1` under "Files in roms/". This proves the scope decision.
 - [ ] Quit and reopen: still signed in. Check in both Desktop Mode and Game Mode.
-- [ ] Eight days later: still signed in.
+- [ ] The project stays in "Testing" (your choice, 2026-10-18), so instead of "eight days later: still signed in": after about seven days Romshelf says the sign-in expired, and signing in again works without setting up the folder again.
 
 Results:
 

@@ -23,14 +23,16 @@ You need a Google account. Use the same account as the Drive that will hold your
 4. **Contact information:** your email again.
 5. Agree to the policy and choose **Create**.
 
-## 4. Set it to "In production"
+## 4. Choose "Testing" or "In production"
 
-This step matters. In "Testing", Google ends every sign-in after seven days and Romshelf would ask you to sign in again every week.
+Go to **Google Auth Platform → Audience**. Pick one:
 
-1. Go to **Google Auth Platform → Audience**.
-2. Under **Publishing status**, choose **Publish app** and confirm. The status should read **In production**.
+- **Testing** (the default). Google ends every sign-in after seven days, so Romshelf asks you to sign in again about once a week. Under **Test users**, choose **Add users** and add your own Google address; without it, Google refuses the sign-in.
+- **In production.** Under **Publishing status**, choose **Publish app** and confirm. Sign-ins then last until you sign out.
 
-Google won't review the app, and that's fine for personal use: when you sign in, Google shows a "Google hasn't verified this app" page. Choose **Advanced**, then **Go to Romshelf (unsafe)**. Unreviewed apps are limited to 100 users, which doesn't matter here.
+Either way, Google won't review the app, and that's fine for personal use: when you sign in, Google shows a "Google hasn't verified this app" page. Choose **Continue** (or **Advanced**, then **Go to Romshelf (unsafe)**).
+
+When a weekly sign-in runs out, Romshelf says "Your Google sign-in has expired or was removed. Sign in again." Signing in may need Desktop Mode if Game Mode can't open a browser.
 
 ## 5. Create the Desktop client
 
