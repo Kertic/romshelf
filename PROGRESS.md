@@ -2,7 +2,7 @@
 
 ## Stage 2: library index and sync (branch `stage-02-library-sync`)
 
-Status: **built; waiting for on-Deck checks.**
+Status: **on-Deck checks passed 2026-10-19.**
 
 ### Built
 
@@ -40,13 +40,13 @@ Status: **built; waiting for on-Deck checks.**
 
 ### On-Deck checklist
 
-- [ ] Upload a ROM from a phone, press Sync, and it appears under the right system.
-- [ ] Rename it in Drive, sync, and the tile updates without duplicating.
-- [ ] Counts in the header match Drive.
+- [x] Upload a ROM from a phone, press Sync, and it appears under the right system.
+- [x] Rename it in Drive, sync, and the tile updates without duplicating.
+- [x] Counts in the header match Drive.
 
 Results:
 
-- Your Shadow the Hedgehog `.zip` in `roms/gamecube/` should appear under "Not recognized"; Kirby under GBA.
+- 2026-10-19: `romshelf sync` on the Deck against the real Drive: "Synced 2 files: 2 new, 1 not recognized.", then "Synced 2 files. Nothing changed." The GameCube `.zip` is listed under "Not recognized"; all three checks passed in the interface.
 
 ## Stage 10a: self-update, pulled forward (branch `stage-10a-self-update`, on top of stage 1)
 
