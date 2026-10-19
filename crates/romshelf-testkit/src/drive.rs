@@ -80,6 +80,45 @@ impl FakeDrive {
         self.state.lock().unwrap().files.values().cloned().collect()
     }
 
+    /// A file with a chosen id, as if uploaded elsewhere (collision tests, fixtures).
+    pub fn create_file_with_id(
+        &self,
+        id: &str,
+        name: &str,
+        parent: &str,
+        bytes: &[u8],
+    ) -> Result<DriveFile> {
+        let mut s = self.state.lock().unwrap();
+        let mut file = s.insert(name, parent, "application/octet-stream", Some(bytes))?;
+        let generated = std::mem::replace(&mut file.id, id.into());
+        s.files.remove(&generated);
+        if let Some(c) = s.content.remove(&generated) {
+            s.content.insert(id.into(), c);
+        }
+        s.files.insert(id.into(), file.clone());
+        if let Some(last) = s.log.last_mut() {
+            *last = id.into();
+        }
+        Ok(file)
+    }
+
+    /// A file of another type, such as a Google Doc or a Drive shortcut.
+    pub fn create_file_with_mime(&self, name: &str, parent: &str, mime: &str) -> Result<DriveFile> {
+        self.state
+            .lock()
+            .unwrap()
+            .insert(name, parent, mime, Some(b""))
+    }
+
+    /// Restores a file from Drive's trash.
+    pub fn untrash(&self, id: &str) -> Result<()> {
+        self.state
+            .lock()
+            .unwrap()
+            .update(id, |f| f.trashed = false)?;
+        Ok(())
+    }
+
     /// Simulates a permanent delete done outside Romshelf (for change-feed tests).
     pub fn remove_permanently(&self, id: &str) {
         let mut s = self.state.lock().unwrap();

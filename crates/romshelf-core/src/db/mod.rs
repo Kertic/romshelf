@@ -6,7 +6,8 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::path::Path;
 
 /// Each entry moves the schema up one version. Never edit a released entry; append a new one.
-const MIGRATIONS: &[&str] = &[r#"
+const MIGRATIONS: &[&str] = &[
+    r#"
 CREATE TABLE systems (
     id      TEXT PRIMARY KEY,
     label   TEXT NOT NULL,
@@ -63,7 +64,15 @@ CREATE TABLE transfer_queue (
     state       TEXT NOT NULL,
     created_at  INTEGER NOT NULL
 );
-"#];
+"#,
+    // Stage 2: display names the user chose, which win over names derived from the file.
+    r#"
+CREATE TABLE name_overrides (
+    rom_id  TEXT PRIMARY KEY,
+    name    TEXT NOT NULL
+);
+"#,
+];
 
 pub struct Database {
     conn: Connection,
@@ -172,6 +181,72 @@ impl Database {
             )
             .optional()?
             .transpose()
+    }
+
+    pub fn rom_by_drive_id(&self, drive_file_id: &str) -> Result<Option<Rom>> {
+        self.conn
+            .query_row(
+                "SELECT id, drive_file_id, system, file_name, display_name, size, checksum, location, recognized
+                 FROM roms WHERE drive_file_id = ?1",
+                [drive_file_id],
+                rom_from_row,
+            )
+            .optional()?
+            .transpose()
+    }
+
+    /// Rows written, inserted or deleted since this connection opened. For tests that assert
+    /// an operation wrote nothing.
+    pub fn total_changes(&self) -> Result<u64> {
+        Ok(self
+            .conn
+            .query_row("SELECT total_changes()", [], |r| r.get::<_, i64>(0))? as u64)
+    }
+
+    // Display-name overrides
+
+    pub fn set_name_override(&self, id: &RomId, name: Option<&str>) -> Result<()> {
+        match name {
+            Some(n) => self.conn.execute(
+                "INSERT INTO name_overrides (rom_id, name) VALUES (?1, ?2)
+                 ON CONFLICT(rom_id) DO UPDATE SET name = excluded.name",
+                params![id.as_str(), n],
+            )?,
+            None => self.conn.execute(
+                "DELETE FROM name_overrides WHERE rom_id = ?1",
+                [id.as_str()],
+            )?,
+        };
+        Ok(())
+    }
+
+    pub fn name_override(&self, id: &RomId) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT name FROM name_overrides WHERE rom_id = ?1",
+                [id.as_str()],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    // Save backups (rows only; stage 6 fills in the rest)
+
+    pub fn add_save_backup(&self, rom_id: &RomId, taken_at: i64, drive_path: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO save_backups (rom_id, taken_at, drive_path) VALUES (?1, ?2, ?3)",
+            params![rom_id.as_str(), taken_at, drive_path],
+        )?;
+        Ok(())
+    }
+
+    pub fn save_backup_count(&self, rom_id: &RomId) -> Result<u64> {
+        Ok(self.conn.query_row(
+            "SELECT count(*) FROM save_backups WHERE rom_id = ?1",
+            [rom_id.as_str()],
+            |r| r.get::<_, i64>(0),
+        )? as u64)
     }
 
     pub fn roms(&self) -> Result<Vec<Rom>> {
@@ -403,6 +478,7 @@ mod tests {
             "shortcuts",
             "settings",
             "transfer_queue",
+            "name_overrides",
         ] {
             let n: i64 = db
                 .conn

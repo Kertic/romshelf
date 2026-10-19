@@ -154,6 +154,8 @@ fn api_error(resp: &HttpResponse) -> Error {
         .unwrap_or_else(|| "no details".into());
     match resp.status {
         404 => Error::NotFound(message),
+        // Bad request, such as an expired change token: the caller decides what to do.
+        400 => Error::Invalid(format!("Google Drive refused the request: {message}")),
         401 => Error::Auth(format!(
             "Google Drive didn't accept the sign-in ({message}). Sign in again."
         )),

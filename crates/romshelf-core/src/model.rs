@@ -55,15 +55,23 @@ impl System {
         }
     }
 
-    /// Recognized file extensions, lower case, without the dot.
+    /// Recognized file extensions, lower case, without the dot (stage 2's table).
     pub fn extensions(self) -> &'static [&'static str] {
         match self {
-            System::Snes => &["sfc", "smc"],
-            System::Gba => &["gba"],
-            System::N64 => &["z64", "n64", "v64"],
+            System::Snes => &["sfc", "smc", "zip", "7z"],
+            System::Gba => &["gba", "zip", "7z"],
+            System::N64 => &["z64", "n64", "v64", "zip", "7z"],
             System::Ps2 => &["iso", "chd"],
-            System::Gamecube => &["iso", "rvz", "gcm"],
+            System::Gamecube => &["iso", "rvz", "gcz", "ciso"],
         }
+    }
+
+    /// Whether a file in this system's folder has one of its extensions, in any case.
+    pub fn recognizes(self, file_name: &str) -> bool {
+        file_name.rsplit_once('.').is_some_and(|(_, ext)| {
+            self.extensions()
+                .contains(&ext.to_ascii_lowercase().as_str())
+        })
     }
 
     pub fn from_id(id: &str) -> Option<System> {
@@ -89,6 +97,15 @@ impl RomId {
             system.id(),
             fnv1a32(drive_file_id.as_bytes())
         ))
+    }
+
+    /// The id to use when `derive` collides with another file's: hashes the file id with a
+    /// counter, so every device that sees the same collision picks the same id.
+    pub fn derive_salted(system: System, drive_file_id: &str, salt: u32) -> RomId {
+        if salt == 0 {
+            return RomId::derive(system, drive_file_id);
+        }
+        RomId::derive(system, &format!("{drive_file_id}#{salt}"))
     }
 
     pub fn parse(s: &str) -> Option<RomId> {

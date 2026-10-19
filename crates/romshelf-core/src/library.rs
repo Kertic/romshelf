@@ -39,40 +39,9 @@ pub fn entries(db: &Database, registry: &Registry) -> Result<Vec<LibraryEntry>> 
         .collect()
 }
 
-/// Display name from a file name: extension and bracketed tags removed.
-pub fn display_name(file_name: &str) -> String {
-    let stem = file_name
-        .rsplit_once('.')
-        .map(|(s, _)| s)
-        .unwrap_or(file_name);
-    let mut out = String::new();
-    let mut depth = 0u32;
-    for c in stem.chars() {
-        match c {
-            '(' | '[' => depth += 1,
-            ')' | ']' => depth = depth.saturating_sub(1),
-            _ if depth == 0 => out.push(if c == '_' { ' ' } else { c }),
-            _ => {}
-        }
-    }
-    out.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
 pub fn systems_with_roms(entries: &[LibraryEntry]) -> Vec<System> {
     let mut v: Vec<System> = entries.iter().map(|e| e.rom.system).collect();
     v.sort();
     v.dedup();
     v
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn display_names() {
-        assert_eq!(display_name("Tidewalker.gba"), "Tidewalker");
-        assert_eq!(display_name("Kite_Rally (USA) [!].z64"), "Kite Rally");
-        assert_eq!(display_name("noext"), "noext");
-    }
 }
