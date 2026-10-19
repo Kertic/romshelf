@@ -2,7 +2,7 @@
 
 ## Stage 10a: self-update, pulled forward (branch `stage-10a-self-update`, on top of stage 1)
 
-Status: **built; needs the signing key and a first release before on-Deck checks.**
+Status: **merged; on-Deck checks passed 2026-10-18 except the offline start. The Deck runs 0.1.2 with 0.1.1 kept as previous.**
 
 Only stage 10's step 3 (self-update) and step 9 (release workflow), brought forward so a Deck stays current without copying builds over SSH. The rest of stage 10 is unchanged and still comes last.
 
@@ -31,19 +31,20 @@ Only stage 10's step 3 (self-update) and step 9 (release workflow), brought forw
 
 ### Confirm
 
-- GitHub's release JSON and asset downloads (`Accept: application/octet-stream`, redirect to storage without the token) behave as coded; private-repository downloads with a fine-grained token.
-- The AppImage runtime sets `APPIMAGE` on SteamOS, including when started from a Steam shortcut.
-- Tauri reads the version from Cargo when `tauri.conf.json` has none (the AppImage's file name and About show the right version).
+- GitHub's release JSON and asset downloads (`Accept: application/octet-stream`, redirect to storage) behave as coded: confirmed 2026-10-18 with the public repository and no token. The private-repository path with a fine-grained token was never used (the repository was made public instead).
+- The AppImage runtime sets `APPIMAGE` on SteamOS, including when started from a Steam shortcut: confirmed 2026-10-18, the update replaced the file while Romshelf ran from its Steam shortcut in Game Mode.
+- Tauri reads the version from Cargo when `tauri.conf.json` has none: confirmed, `--version` and the top band show 0.1.1 and 0.1.2 for those releases.
+- Found on the Deck: `romshelf update` run by hand counts as that day's check, so the interface doesn't check again for 24 hours. Kept as is.
 
 ### On-Deck checklist
 
 Before these: run `scripts/new-update-key.sh`, commit the public key, set the GitHub token on the Deck (`update --set-token`) while the repository is private, merge, tag a release (say `v0.1.1`), and install that build by hand once. Then publish `v0.1.2`.
 
-- [ ] Open Romshelf: within a minute the top bar says "Romshelf 0.1.2 is ready". `~/Applications/romshelf.AppImage.previous` exists.
-- [ ] Quit and open it again: it runs 0.1.2 (`~/Applications/romshelf.AppImage --version`).
-- [ ] Existing Steam shortcuts (Romshelf itself) still launch.
-- [ ] `romshelf update --rollback` puts 0.1.1 back, and opening Romshelf doesn't reinstall 0.1.2.
-- [ ] With Wi-Fi off, Romshelf opens normally and updates the next time it's online.
+- [x] Open Romshelf: within a minute the top bar says "Romshelf 0.1.2 is ready". `~/Applications/romshelf.AppImage.previous` exists. 2026-10-18: yes, opened from Steam in Game Mode; the new file matches the release checksum.
+- [x] Quit and open it again: it runs 0.1.2 (`~/Applications/romshelf.AppImage --version`).
+- [x] Existing Steam shortcuts (Romshelf itself) still launch.
+- [x] `romshelf update --rollback` puts 0.1.1 back, and opening Romshelf doesn't reinstall 0.1.2. 2026-10-18: rolled back over SSH; `update` then reported 0.1.1 up to date. 0.1.2 was put back by hand afterwards.
+- [ ] With Wi-Fi off, Romshelf opens normally and updates the next time it's online. Not tried yet.
 
 ## Stage 1: Google Drive connection (branch `stage-01-drive-connection`)
 
