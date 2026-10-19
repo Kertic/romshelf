@@ -40,12 +40,13 @@ Status: **built; waiting for on-Deck checks.**
 - **One process per launch.** `romshelf launch` doesn't hand the game to an already open Romshelf; both can run at once, sharing the database. That keeps Steam's process tracking simple: the shortcut's own process waits for the game.
 - **The launch window hides while the game runs**, so the emulator has the screen; it shows again only if something fails.
 - **Saves are separate for now.** Games Romshelf starts save to Romshelf's own folders (Dolphin's user folder, RetroArch's `romshelf/saves`), not EmuDeck's on the SD card. So a save made through EmuDeck or ES-DE won't show in a game started from Romshelf, and the other way round. Stage 6 (save backup) decides how saves are kept and shared.
+- **Quitting a game comes from the emulator's settings.** Today that's EmuDeck's hotkeys in the copied settings (View + Menu exits Dolphin). Stage 7 (controls) should give every game one quit combination that doesn't depend on another tool's settings.
 - **`romshelf doctor` without `--id`** (the whole-setup check) is stage 10's.
 - **Play isn't offered before downloading.** The dialog's first action is **Download to Deck**, or **Set up {emulator}**, until the game can start straight away. A Steam shortcut still does everything in one go.
 
 ### On-Deck checklist
 
-- [ ] Play from the Library starts the game full screen; quitting returns to Romshelf.
+- [x] Play from the Library starts the game full screen; quitting returns to Romshelf. 2026-10-19: Twilight Princess in Dolphin, with your controls (copied settings); quit with View + Menu (EmuDeck's Exit hotkey, from the copied Hotkeys.ini). Log: `gamecube-2260f1ec dolphin 1051s exit 0`.
 - [ ] From the Desktop Mode terminal, `~/Applications/romshelf.AppImage launch --id <id>` starts the same game (ids: `romshelf doctor --id <id>` explains one; your Twilight Princess is `gamecube-2260f1ec`).
 - [ ] Add a non-Steam shortcut with target `~/Applications/romshelf.AppImage` and launch options `launch --id <id>`; it starts the game from Game Mode and returns to Steam on quit.
 - [ ] Launch a game that isn't downloaded from such a shortcut: the progress window appears, then the game.
