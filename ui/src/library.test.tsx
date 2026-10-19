@@ -22,7 +22,11 @@ function entry(name: string, system: string, label: string, location: LocationSt
     system_label: label,
     system_colour: "#1F6B62",
     emulator: "RetroArch",
+    emulator_id: "retroarch",
+    core: null,
     emulator_installed: true,
+    emulator_ready: true,
+    actions: [],
     in_steam: false,
   };
 }

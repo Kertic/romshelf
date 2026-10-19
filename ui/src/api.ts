@@ -23,8 +23,16 @@ export interface LibraryEntry {
   rom: Rom;
   system_label: string;
   system_colour: string;
+  /** The emulator's name, or null when Romshelf can't run this system yet. */
   emulator: string | null;
+  emulator_id: string | null;
+  /** RetroArch's core for this system ("mgba"). */
+  core: string | null;
   emulator_installed: boolean;
+  /** Installed and set up: the game can be played once downloaded. */
+  emulator_ready: boolean;
+  /** The emulator's own functions, for the ROM page. */
+  actions: { id: string; label: string }[];
   in_steam: boolean;
 }
 
@@ -225,6 +233,49 @@ export async function onTransfer(handler: (e: TransferEvent) => void): Promise<U
   return listen<TransferEvent>("transfer", (e) => handler(e.payload));
 }
 
+export type EmulatorStatus = "not_installed" | "setup_incomplete" | "installed";
+
+export interface EmulatorView {
+  id: string;
+  name: string;
+  /** System labels: "SNES", "GBA", "N64". */
+  systems: string[];
+  status: EmulatorStatus;
+  status_label: string;
+  /** Romshelf is setting it up right now. */
+  setting_up: boolean;
+}
+
+/** Progress while an emulator is set up. */
+export interface SetupUpdate {
+  emulator_id: string;
+  kind: "step" | "progress" | "done" | "failed";
+  step: string | null;
+  percent: number | null;
+  message: string | null;
+}
+
+/** Every emulator with its status. Checks Flatpak, so it can take a moment. */
+export async function emulators(): Promise<EmulatorView[]> {
+  if (!inTauri()) {
+    return [
+      { id: "retroarch", name: "RetroArch", systems: ["SNES", "GBA", "N64"], status: "installed", status_label: "Installed", setting_up: false },
+      { id: "dolphin", name: "Dolphin", systems: ["GameCube"], status: "not_installed", status_label: "Not installed", setting_up: false },
+    ];
+  }
+  return invoke<EmulatorView[]>("emulators");
+}
+
+/** Starts installing and setting up an emulator in the background. */
+export async function setupEmulator(emulatorId: string, repair = false): Promise<void> {
+  if (inTauri()) await invoke("setup_emulator", { emulatorId, repair });
+}
+
+export async function onEmulatorSetup(handler: (u: SetupUpdate) => void): Promise<UnlistenFn> {
+  if (!inTauri()) return () => {};
+  return listen<SetupUpdate>("emulator-setup", (e) => handler(e.payload));
+}
+
 /** A newer Romshelf installed in the background this session; it runs from the next start. */
 export async function updateReady(): Promise<string | null> {
   if (!inTauri()) return null;
@@ -265,7 +316,16 @@ function browserPreviewLibrary(): LibraryEntry[] {
     system_label: label,
     system_colour: colour,
     emulator: system === "gamecube" ? "Dolphin" : system === "ps2" ? null : "RetroArch",
+    emulator_id: system === "gamecube" ? "dolphin" : system === "ps2" ? null : "retroarch",
+    core: system === "snes" ? "snes9x" : system === "gba" ? "mgba" : null,
     emulator_installed: system !== "gamecube",
+    emulator_ready: system !== "gamecube" && system !== "ps2",
+    actions:
+      system === "gamecube"
+        ? [{ id: "memory_cards", label: "Memory cards" }, { id: "save_states", label: "Save states" }, { id: "texture_packs", label: "Texture packs" }]
+        : system === "ps2"
+          ? []
+          : [{ id: "save_states", label: "Save states" }, { id: "cheats", label: "Cheats" }, { id: "shaders", label: "Shaders" }],
     in_steam,
   }));
 }

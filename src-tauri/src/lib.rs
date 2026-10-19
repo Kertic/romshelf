@@ -2,6 +2,7 @@
 
 mod auth_cli;
 pub mod cli;
+mod emulators_cli;
 mod gamepad;
 mod library_cli;
 mod state;
@@ -14,6 +15,9 @@ use romshelf_core::clock::{Clock, SystemClock};
 use romshelf_core::connection::{Connection, Folder, Status};
 use romshelf_core::db::Database;
 use romshelf_core::drive::scaffold;
+use romshelf_core::drive::DriveClient;
+use romshelf_core::emulators::setup::{self, EmulatorInfo, SetupContext, SetupEvent};
+use romshelf_core::emulators::Registry;
 use romshelf_core::library::{self, LibraryEntry};
 use romshelf_core::model::RomId;
 use romshelf_core::paths::Paths;
@@ -134,6 +138,36 @@ pub fn run() -> i32 {
                 Paths::for_app().and_then(|paths| Ok((Database::open(&paths.db_file())?, paths)));
             match setup {
                 Ok((db, paths)) => library_cli::remove(&db, &paths, &id, &mut std::io::stdout()),
+                Err(e) => {
+                    eprintln!("{}", UiError::from(e).message);
+                    1
+                }
+            }
+        }
+        Some(Command::Emulators { setup }) => {
+            let result = Paths::for_app().and_then(|paths| {
+                let db = Database::open(&paths.db_file())?;
+                let conn = Connection::real(&paths)?;
+                let folder = conn.settings()?.drive;
+                let http = romshelf_core::http::ReqwestTransport::new()?;
+                let ctx = SetupContext {
+                    runner: &romshelf_core::process::FlatpakRunner,
+                    http: &http,
+                    db: &db,
+                    paths: &paths,
+                    drive: folder
+                        .as_ref()
+                        .map(|f| (conn.drive.as_ref() as &dyn DriveClient, &f.layout)),
+                };
+                Ok(emulators_cli::run(
+                    &ctx,
+                    &Registry::default(),
+                    setup.as_deref(),
+                    &mut std::io::stdout(),
+                ))
+            });
+            match result {
+                Ok(code) => code,
                 Err(e) => {
                     eprintln!("{}", UiError::from(e).message);
                     1
@@ -519,6 +553,143 @@ struct StorageStatus {
     free: Option<u64>,
 }
 
+/// Runs `f` with a setup context on its own database connection, so a long Flatpak install
+/// never holds the app's shared connection.
+fn with_setup_ctx<T>(
+    state: &AppState,
+    f: impl FnOnce(&SetupContext) -> romshelf_core::Result<T>,
+) -> romshelf_core::Result<T> {
+    let db = Database::open(&state.paths.db_file())?;
+    let folder = state.connection.settings()?.drive;
+    let ctx = SetupContext {
+        runner: state.runner.as_ref(),
+        http: state.http.as_ref(),
+        db: &db,
+        paths: &state.paths,
+        drive: folder
+            .as_ref()
+            .map(|f| (state.connection.drive.as_ref(), &f.layout)),
+    };
+    f(&ctx)
+}
+
+#[derive(Serialize)]
+struct EmulatorView {
+    #[serde(flatten)]
+    info: EmulatorInfo,
+    status_label: &'static str,
+    /// Romshelf is setting it up right now.
+    setting_up: bool,
+}
+
+/// Every emulator with its status, for the Emulators screen. Runs `flatpak info` per emulator.
+#[tauri::command]
+async fn emulators(app: tauri::AppHandle) -> Result<Vec<EmulatorView>, UiError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let busy = state.setups.lock().map(|s| s.clone()).unwrap_or_default();
+        let list = with_setup_ctx(&state, |ctx| setup::list(ctx, &state.registry))?;
+        Ok(list
+            .into_iter()
+            .map(|info| EmulatorView {
+                status_label: info.status.label(),
+                setting_up: busy.contains(&info.id),
+                info,
+            })
+            .collect())
+    })
+    .await
+    .map_err(internal)?
+}
+
+/// What the interface hears while an emulator is set up.
+#[derive(Clone, Serialize)]
+struct SetupUpdate {
+    emulator_id: String,
+    /// "step", "progress", "done" or "failed".
+    kind: &'static str,
+    step: Option<&'static str>,
+    percent: Option<u8>,
+    message: Option<String>,
+}
+
+/// Starts setting up an emulator in the background (`repair` runs every step again). Emits
+/// `emulator-setup` updates, then
+/// `library-changed`. Asking again while it runs does nothing.
+#[tauri::command]
+fn setup_emulator(app: tauri::AppHandle, emulator_id: String, repair: bool) -> Result<(), UiError> {
+    let state = app.state::<AppState>();
+    if state.registry.by_id(&emulator_id).is_none() {
+        return Err(UiError {
+            kind: "error",
+            message: format!("There's no emulator called {emulator_id}."),
+        });
+    }
+    {
+        let mut busy = state.setups.lock().map_err(internal)?;
+        if busy.contains(&emulator_id) {
+            return Ok(());
+        }
+        busy.push(emulator_id.clone());
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let state = app.state::<AppState>();
+        let send = |kind, step, percent, message| {
+            let _ = app.emit(
+                "emulator-setup",
+                SetupUpdate {
+                    emulator_id: emulator_id.clone(),
+                    kind,
+                    step,
+                    percent,
+                    message,
+                },
+            );
+        };
+        let result = with_setup_ctx(&state, |ctx| {
+            let adapter = state
+                .registry
+                .by_id(&emulator_id)
+                .ok_or_else(|| Error::NotFound(emulator_id.clone()))?;
+            if repair {
+                setup::reset(ctx.db, adapter)?;
+            }
+            setup::run_setup(ctx, adapter, &mut |e| match e {
+                SetupEvent::Step { step } => send("step", Some(step.label()), None, None),
+                SetupEvent::Progress { percent } => send("progress", None, Some(percent), None),
+            })
+        });
+        if let Ok(mut busy) = state.setups.lock() {
+            busy.retain(|id| id != &emulator_id);
+        }
+        match result {
+            Ok(report) => {
+                let missing = report.summary();
+                send("done", None, None, (!missing.is_empty()).then_some(missing));
+            }
+            Err(e) => send("failed", None, None, Some(UiError::from(e).message)),
+        }
+        let _ = app.emit("library-changed", ());
+    });
+    Ok(())
+}
+
+/// Brings the database's "installed" flags up to date (an emulator may have been installed or
+/// removed outside Romshelf), then asks the interface to reread the library.
+fn refresh_emulators(app: &tauri::AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let state = app.state::<AppState>();
+        match with_setup_ctx(&state, |ctx| setup::list(ctx, &state.registry)) {
+            Ok(_) => {
+                let _ = app.emit("library-changed", ());
+            }
+            Err(e) => eprintln!("Couldn't check emulators: {e}"),
+        }
+    });
+}
+
 #[tauri::command]
 fn storage_status(state: tauri::State<'_, AppState>) -> StorageStatus {
     let root = state.paths.storage_root();
@@ -584,6 +755,8 @@ fn run_interface() -> i32 {
             cancel_download,
             remove_from_deck,
             storage_status,
+            emulators,
+            setup_emulator,
             quit
         ])
         .setup(move |app| {
@@ -607,6 +780,7 @@ fn run_interface() -> i32 {
                 }
             }
             start_downloads(app.handle());
+            refresh_emulators(app.handle());
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.set_focus();
             }

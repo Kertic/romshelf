@@ -24,9 +24,48 @@ use std::time::Duration;
 pub struct FakePackageRunner {
     pub calls: Mutex<Vec<Vec<String>>>,
     script: Mutex<VecDeque<CommandOutput>>,
+    /// `Some` when simulating Flatpak (see `simulating`).
+    installed: Mutex<Option<std::collections::BTreeSet<String>>>,
+    /// Pause between simulated progress lines, so an install can be watched.
+    pub step_delay: Duration,
 }
 
 impl FakePackageRunner {
+    /// Unscripted calls behave like Flatpak with these apps installed: `info` answers from the
+    /// set and `install` adds to it, reporting progress. Fake mode uses this.
+    pub fn simulating(installed: &[&str]) -> FakePackageRunner {
+        let runner = FakePackageRunner::default();
+        *runner.installed.lock().unwrap() = Some(installed.iter().map(|s| s.to_string()).collect());
+        runner
+    }
+
+    /// The answer an unscripted call gets.
+    fn simulate(&self, args: &[&str]) -> CommandOutput {
+        let mut installed = self.installed.lock().unwrap();
+        let Some(set) = installed.as_mut() else {
+            return CommandOutput::default();
+        };
+        let id = args.last().copied().unwrap_or_default();
+        match args.first().copied() {
+            Some("info") if !set.contains(id) => CommandOutput {
+                code: 1,
+                stdout: String::new(),
+                stderr: format!("error: {id}/*unspecified*/*unspecified* not installed"),
+            },
+            Some("install") => {
+                set.insert(id.to_string());
+                CommandOutput {
+                    code: 0,
+                    stdout: (1..=10)
+                        .map(|i| format!("Installing {id}… {}%\r", i * 10))
+                        .collect(),
+                    stderr: String::new(),
+                }
+            }
+            _ => CommandOutput::default(),
+        }
+    }
+
     pub fn push_result(&self, code: i32, stdout: &str, stderr: &str) {
         self.script.lock().unwrap().push_back(CommandOutput {
             code,
@@ -46,7 +85,23 @@ impl PackageRunner for FakePackageRunner {
             .lock()
             .unwrap()
             .push(args.iter().map(|s| s.to_string()).collect());
-        Ok(self.script.lock().unwrap().pop_front().unwrap_or_default())
+        let scripted = self.script.lock().unwrap().pop_front();
+        Ok(scripted.unwrap_or_else(|| self.simulate(args)))
+    }
+
+    fn flatpak_streaming(
+        &self,
+        args: &[&str],
+        on_output: &mut dyn FnMut(&str),
+    ) -> Result<CommandOutput> {
+        let out = self.flatpak(args)?;
+        for piece in out.stdout.split(['\r', '\n']).filter(|p| !p.is_empty()) {
+            if !self.step_delay.is_zero() {
+                std::thread::sleep(self.step_delay);
+            }
+            on_output(piece);
+        }
+        Ok(out)
     }
 }
 

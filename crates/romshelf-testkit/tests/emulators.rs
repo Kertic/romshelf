@@ -9,6 +9,7 @@ use romshelf_core::emulators::setup::{
 use romshelf_core::emulators::{Dolphin, EmulatorAdapter, Registry, RetroArch};
 use romshelf_core::model::System;
 use romshelf_core::paths::Paths;
+use romshelf_core::process::PackageRunner;
 use romshelf_testkit::{FakeDrive, FakeHttp, FakePackageRunner};
 use std::io::Write;
 
@@ -449,4 +450,28 @@ fn drive_access_is_read_only_during_setup() {
         before,
         "nothing written to Drive"
     );
+}
+
+#[test]
+fn the_simulated_flatpak_installs_and_remembers() {
+    let runner = FakePackageRunner::simulating(&["org.libretro.RetroArch"]);
+    assert!(RetroArch.detect(&runner).unwrap());
+    assert!(!Dolphin.detect(&runner).unwrap());
+    let mut seen = Vec::new();
+    let out = runner
+        .flatpak_streaming(
+            &[
+                "install",
+                "--user",
+                "--noninteractive",
+                "-y",
+                "flathub",
+                "org.DolphinEmu.dolphin-emu",
+            ],
+            &mut |p| seen.push(p.to_string()),
+        )
+        .unwrap();
+    assert_eq!(out.code, 0);
+    assert_eq!(seen.len(), 10);
+    assert!(Dolphin.detect(&runner).unwrap());
 }

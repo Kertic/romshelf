@@ -151,7 +151,8 @@ pub fn record_step(db: &Database, adapter: &dyn EmulatorAdapter, step: SetupStep
     db.set_setting(&setting_key(adapter), &text)
 }
 
-fn forget_steps(db: &Database, adapter: &dyn EmulatorAdapter) -> Result<()> {
+/// Forgets the recorded steps, so the next setup runs them all again ("Repair").
+pub fn reset(db: &Database, adapter: &dyn EmulatorAdapter) -> Result<()> {
     db.set_setting(&setting_key(adapter), "")
 }
 
@@ -213,7 +214,7 @@ pub fn run_setup(
     // Removed outside Romshelf since its setup ran: start again.
     let installed = adapter.detect(ctx.runner)?;
     if !installed {
-        forget_steps(ctx.db, adapter)?;
+        reset(ctx.db, adapter)?;
     }
     let done = completed(ctx.db, adapter)?;
     for step in SetupStep::ALL {
@@ -296,8 +297,7 @@ fn last_percent(piece: &str) -> Option<u8> {
         .split(|c: char| !c.is_ascii_digit() && c != '%')
         .filter_map(|w| w.strip_suffix('%'))
         .filter_map(|n| n.parse::<u8>().ok())
-        .filter(|n| *n <= 100)
-        .last()
+        .rfind(|n| *n <= 100)
 }
 
 /// Fetches a RetroArch core from the libretro buildbot unless one is already there.

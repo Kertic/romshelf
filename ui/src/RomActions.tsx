@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { LibraryEntry, Progress } from "./api";
+import type { SetupState } from "./Emulators";
 import type { BackAction } from "./FirstRun";
 
 /** "1.4 GB", "820 MB". */
@@ -49,15 +50,49 @@ interface Props {
   onCancel: () => void;
   /** Removes the copy on this Deck; Drive is never touched. */
   onRemove: () => Promise<void>;
+  /** Installs and sets up this game's emulator. */
+  onSetupEmulator?: () => void;
+  /** The emulator's setup, while it runs or after it failed. */
+  setup?: SetupState;
   onClose: () => void;
   setBack: (back: BackAction | null) => void;
+}
+
+const CORE_NAMES: Record<string, string> = {
+  snes9x: "Snes9x",
+  mgba: "mGBA",
+  mupen64plus_next: "Mupen64Plus-Next",
+};
+
+/** "Runs in RetroArch with the mGBA core", "Needs Dolphin", or why it can't run. */
+export function emulatorLine(e: LibraryEntry): { text: string; warn: boolean } {
+  if (!e.emulator) return { text: `Romshelf can't run ${e.system_label} games yet.`, warn: true };
+  if (!e.emulator_ready) {
+    return {
+      text: e.emulator_installed ? `${e.emulator} needs setting up` : `Needs ${e.emulator}`,
+      warn: true,
+    };
+  }
+  const core = e.core ? ` with the ${CORE_NAMES[e.core] ?? e.core} core` : "";
+  return { text: `Runs in ${e.emulator}${core}`, warn: false };
 }
 
 /**
  * A game's download actions, opened with A on a tile. Stands in for the drawer and ROM page
  * until stage 9. Romshelf never changes files in Drive, so nothing here deletes from Drive.
  */
-export function RomDialog({ entry, progress, error, onDownload, onCancel, onRemove, onClose, setBack }: Props) {
+export function RomDialog({
+  entry,
+  progress,
+  error,
+  onDownload,
+  onCancel,
+  onRemove,
+  onSetupEmulator,
+  setup,
+  onClose,
+  setBack,
+}: Props) {
   const [confirming, setConfirming] = useState(false);
   const rom = entry.rom;
   const state = rom.location.state;
@@ -79,6 +114,10 @@ export function RomDialog({ entry, progress, error, onDownload, onCancel, onRemo
         : `${(rom.location as { percent: number }).percent}%`
       : null;
   const fraction = progress && progress.total > 0 ? progress.bytes / progress.total : 0;
+  const line = emulatorLine(entry);
+  // The guide's screen 2b: with the emulator missing, setting it up is the main action.
+  const needsSetup = Boolean(entry.emulator) && !entry.emulator_ready;
+  const setupRunning = Boolean(setup?.running);
 
   return (
     <div className="dialog-backdrop">
@@ -87,6 +126,18 @@ export function RomDialog({ entry, progress, error, onDownload, onCancel, onRemo
           {entry.system_label} · {rom.file_name} · {humanSize(rom.size)}
         </span>
         <h2 className="dialog-title">{rom.display_name}</h2>
+        <span className={line.warn ? "tile-status warn" : "body-text"}>{line.text}</span>
+        {needsSetup && setupRunning && (
+          <div className="progress" aria-label={`${entry.emulator} setup progress`}>
+            <div className="progress-track">
+              <div className="progress-fill" style={{ width: `${setup?.percent ?? 0}%` }} />
+            </div>
+            <span className="mono small">
+              {setup?.step ?? "Setting up"}…{setup?.percent != null ? ` ${setup.percent}%` : ""}
+            </span>
+          </div>
+        )}
+        {needsSetup && setup?.failed && setup.message && <p className="error">{setup.message}</p>}
         {state === "downloading" ? (
           <div className="progress" aria-label="Download progress">
             <div className="progress-track">
@@ -100,16 +151,40 @@ export function RomDialog({ entry, progress, error, onDownload, onCancel, onRemo
           </p>
         )}
         {error && <p className="error">{error}</p>}
+        {entry.emulator && entry.actions.length > 0 && (
+          <section className="functions" aria-label={`${entry.emulator} functions`}>
+            <h3 className="group-label">{entry.emulator} functions</h3>
+            {entry.actions.map((a) => (
+              <div className="function-row" key={a.id}>
+                <span>{a.label}</span>
+                <span className="muted small">Comes in a later update</span>
+              </div>
+            ))}
+          </section>
+        )}
         <div className="dialog-actions">
+          {needsSetup && (
+            <button
+              className="button primary"
+              data-focusable
+              data-autofocus
+              data-hint="Set up"
+              type="button"
+              disabled={setupRunning}
+              onClick={onSetupEmulator}
+            >
+              {setup?.failed ? `Try setting up ${entry.emulator} again` : `Set up ${entry.emulator}`}
+            </button>
+          )}
           {state === "downloading" ? (
             <button className="button outline" data-focusable data-autofocus data-hint="Cancel" type="button" onClick={onCancel}>
               Cancel download
             </button>
           ) : (
             <button
-              className={state === "on_deck" ? "button outline" : "button primary"}
+              className={state === "on_deck" || needsSetup ? "button outline" : "button primary"}
               data-focusable
-              data-autofocus
+              data-autofocus={needsSetup ? undefined : true}
               data-hint="Download"
               type="button"
               onClick={onDownload}

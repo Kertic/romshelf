@@ -52,6 +52,7 @@ interface Props {
   storage?: StorageStatus | null;
   /** A on a tile: open its actions. */
   onOpen?: (romId: string) => void;
+  onOpenEmulators?: () => void;
   onOpenSpike: () => void;
   onQuit: () => void;
 }
@@ -70,6 +71,7 @@ export function Home({
   progress = {},
   storage = null,
   onOpen,
+  onOpenEmulators,
   onOpenSpike,
   onQuit,
 }: Props) {
@@ -111,6 +113,15 @@ export function Home({
           </span>
         )}
         {info?.fake && <span className="badge">Fixture library</span>}
+        <button
+          type="button"
+          className="top-button"
+          data-focusable
+          data-hint="Open"
+          onClick={onOpenEmulators}
+        >
+          Emulators
+        </button>
         <button
           type="button"
           className={line.warn ? "sync-status warn" : "sync-status"}

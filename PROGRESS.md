@@ -1,5 +1,54 @@
 # Progress
 
+## Stage 4: emulator registry and setup (branch `stage-04-emulator-setup`, on top of stage 3)
+
+Status: **built; waiting for on-Deck checks and the two Confirm items.**
+
+### Built
+
+- **Registry:** SNES `snes9x`, GBA `mgba`, N64 `mupen64plus_next` in RetroArch; GameCube in Dolphin. `Registry::require` gives "Romshelf can't run PS2 games yet." for a system with no emulator.
+- **Detect:** `flatpak info <id>` counts an install for this user *or* system-wide, so an emulator EmuDeck installed is used rather than installed twice.
+- **Install:** `flatpak remote-add --user --if-not-exists flathub …`, then `flatpak install --user --noninteractive -y flathub <id>`, streaming Flatpak's output and reading the percentages for progress. A failure gives Flatpak's own message ("Couldn't install Dolphin: … Try again.") and a later attempt starts cleanly.
+- **RetroArch cores:** each missing core is downloaded from `buildbot.libretro.com/nightly/linux/x86_64/latest/<core>_libretro.so.zip`, unzipped, checked to be an ELF file, and put in the Flatpak's cores folder. A core already there (yours or EmuDeck's) is left alone.
+- **Session folders, never your settings:**
+  - RetroArch: `~/.var/app/org.libretro.RetroArch/config/romshelf/` with `saves/`, `states/`, `system/`, and `romshelf.cfg` pointing RetroArch at them. That file is meant for `--appendconfig` in stage 5. `retroarch.cfg` is never edited.
+  - Dolphin: `~/.var/app/org.DolphinEmu.dolphin-emu/data/romshelf-user/`, meant for Dolphin's `-u` user-folder option. Your Dolphin settings and memory cards are not touched.
+- **BIOS:** adapters can declare required and optional files per system. Setup copies them from Drive's `bios/<system>/` (reading only) and lists what's missing: "Missing BIOS: rom1.bin. Add it to Drive's Emulation/bios/ps2 folder." RetroArch and Dolphin need none for these systems.
+- **Setup steps:** Install, Default controls, Link saves. Each is recorded in the database when done, so an interrupted setup resumes at the next step. The last two only record completion until stages 7 and 6 fill them in. If the Flatpak disappears outside Romshelf, the steps start over. **Repair** runs them all again.
+- **Status:** Not installed / Setup incomplete (installed, perhaps by EmuDeck, but Romshelf's setup or a core is missing) / Installed. Checking also keeps the database's "installed" flag (the Library's "Needs Dolphin") in step, and runs once at start-up.
+- **Declared actions:** the game's actions dialog lists the emulator's own functions ("Memory cards", "Save states", "Texture packs" for Dolphin; "Save states", "Cheats", "Shaders" for RetroArch), each marked "Comes in a later update".
+- **Command line:** `romshelf emulators` lists them; `romshelf emulators --setup dolphin` sets one up and prints the steps and progress.
+- **Interface:**
+  - An **Emulators** button in the top band opens the Emulators screen: each emulator with its systems, status and **Set up** / **Repair** (or **Try again**), with a progress bar while it installs. Setup keeps running in the background if you go back.
+  - A game's actions dialog says "Runs in RetroArch with the mGBA core", "Needs Dolphin" or "Romshelf can't run PS2 games yet". When the emulator isn't ready, **Set up {emulator}** comes first with its progress (guide screen 2b).
+- **Fake mode:** a simulated Flatpak (RetroArch installed and set up, Dolphin not) that installs with visible progress.
+
+### Tests
+
+17 emulator tests: every recognized extension resolves to one emulator or "can't run … yet"; detecting installed and not installed (any installation); the exact install commands once, with progress 12 → 58 → 100; an installed emulator not installed again; an install failure with Flatpak's message, then a working retry; a missing core fetched and present ones left alone; a bad core download reported with nothing written; setup resuming at step two; the three statuses; session folders created while the user's `retroarch.cfg` and `Dolphin.ini` stay byte-identical; BIOS copied and missing ones named; different declared actions; listing with systems and status keeping the installed flag; nothing written to Drive; the simulated Flatpak. Plus the progress parser, `romshelf emulators` (list, set up, unknown name), CLI parsing, and 12 UI tests (Emulators screen rows, actions, progress, failure; the dialog's emulator line, functions, Set up first, setup progress and retry, unsupported system).
+
+### Choices made
+
+- **Installed by anyone counts.** The stage file says `flatpak info --user`; that would miss EmuDeck's system-wide installs and add a duplicate.
+- **Romshelf's settings live inside each Flatpak's own data folder**, because the sandbox can always reach it. Nothing outside it is written.
+- **Status has no "Update available" yet.** Flathub updates come through Discover or `flatpak update`. Noted for stage 9's Emulators screen.
+- **The stage file calls this the "ROM page".** Until stage 9 builds it, the game's actions dialog carries its parts: the emulator line, setup and functions.
+- `Error::Invalid` no longer prefixes messages with "invalid:", since many reach the user (stage 3's storage messages too).
+- `romshelf emulators` is a new subcommand (CLAUDE.md updated).
+
+### Confirm on the Deck
+
+- **Where the RetroArch Flatpak keeps cores.** Assumed `~/.var/app/org.libretro.RetroArch/config/retroarch/cores` (its default `libretro_directory`). If EmuDeck changed `libretro_directory`, RetroArch still finds cores when stage 5 passes the full path with `-L`.
+- **Dolphin's user folder option:** `-u <folder>` (`--user`). Checked in stage 5 when it is first used.
+- That the buildbot's generic Linux cores load in the Flatpak RetroArch (they're what its own core updater downloads).
+
+### On-Deck checklist
+
+- [ ] With Dolphin not installed, open a GameCube game's actions: it says "Needs Dolphin" and offers **Set up Dolphin** first (screen 2b).
+- [ ] Press **Set up Dolphin**: it installs with visible progress and the game then shows "Runs in Dolphin" (screen 2).
+- [ ] Do the same for RetroArch (or **Repair** it if EmuDeck already installed it) and confirm the snes9x, mgba and mupen64plus_next cores are present.
+- [ ] The Emulators screen shows both as installed.
+
 ## Stage 3: download, remove and storage (branch `stage-03-download-delete`)
 
 Status: **built; waiting for on-Deck checks.**

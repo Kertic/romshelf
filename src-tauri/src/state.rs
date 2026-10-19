@@ -1,11 +1,14 @@
 use romshelf_core::connection::Connection;
 use romshelf_core::db::Database;
 use romshelf_core::drive::{DriveClient, ROOT};
-use romshelf_core::emulators::Registry;
+use romshelf_core::emulators::setup::{self, SetupStep};
+use romshelf_core::emulators::{EmulatorAdapter, Registry, RetroArch};
+use romshelf_core::http::{HttpTransport, ReqwestTransport};
 use romshelf_core::paths::Paths;
+use romshelf_core::process::{FlatpakRunner, PackageRunner};
 use romshelf_core::Result;
 use romshelf_testkit::connection::{simulate_browser, FakeConnection};
-use romshelf_testkit::FakeHttp;
+use romshelf_testkit::{FakeHttp, FakePackageRunner};
 use serde::Serialize;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -41,6 +44,12 @@ pub struct AppState {
     pub cancel: Arc<AtomicBool>,
     /// A download worker thread is running.
     pub worker_busy: AtomicBool,
+    /// Runs `flatpak` to detect and install emulators.
+    pub runner: Arc<dyn PackageRunner>,
+    /// Fetches RetroArch cores.
+    pub http: Arc<dyn HttpTransport>,
+    /// Emulator ids whose setup is running.
+    pub setups: Mutex<Vec<String>>,
     /// Keeps fake mode's temp directory alive for the life of the app.
     _fake_root: Option<tempfile::TempDir>,
 }
@@ -67,6 +76,9 @@ impl AppState {
                 sync_lock: Mutex::new(()),
                 cancel: Arc::new(AtomicBool::new(false)),
                 worker_busy: AtomicBool::new(false),
+                runner: Arc::new(FlatpakRunner),
+                http: Arc::new(ReqwestTransport::new()?),
+                setups: Mutex::new(Vec::new()),
                 fake_http: None,
                 paths,
                 _fake_root: None,
@@ -103,6 +115,18 @@ impl AppState {
                 )?;
             }
         }
+        // RetroArch is installed and set up (cores in place); Dolphin is not, so its setup
+        // can be tried. The simulated Flatpak installs with visible progress.
+        let mut runner = FakePackageRunner::simulating(&[RetroArch.flatpak_id()]);
+        runner.step_delay = Duration::from_millis(300);
+        for core in RetroArch.required_cores() {
+            let file = RetroArch::core_file(&paths, core);
+            std::fs::create_dir_all(file.parent().unwrap_or(&paths.flatpak_root))?;
+            std::fs::write(file, b"ELF fake core")?;
+        }
+        for step in SetupStep::ALL {
+            setup::record_step(&db, &RetroArch, step)?;
+        }
         let FakeConnection {
             connection, http, ..
         } = fake_conn;
@@ -121,6 +145,9 @@ impl AppState {
             sync_lock: Mutex::new(()),
             cancel: Arc::new(AtomicBool::new(false)),
             worker_busy: AtomicBool::new(false),
+            runner: Arc::new(runner),
+            http: Arc::new(FakeHttp::default()),
+            setups: Mutex::new(Vec::new()),
             fake_http: Some(http),
             _fake_root: Some(root),
         })

@@ -39,7 +39,7 @@ Status column: **Checked** means the page was opened on 10 October 2026 and says
 | https://flathub.org/apps/net.pcsx2.PCSX2 | PCSX2 Flatpak (later adapter) | Checked |
 | https://docs.libretro.com/guides/cli-intro/ | RetroArch command line: `-L`, `--config`, `--appendconfig` | Checked |
 | https://docs.libretro.com/guides/overrides/ | RetroArch per-core and per-game overrides and remap file locations | Checked |
-| https://buildbot.libretro.com/nightly/linux/x86_64/latest/ | Libretro core downloads | Not checked |
+| https://buildbot.libretro.com/nightly/linux/x86_64/latest/ | Libretro core downloads (`<core>_libretro.so.zip`), used by stage 4 setup | Not checked (Confirm on the Deck) |
 | https://wiki.dolphin-emu.org/index.php?title=GameINI | Dolphin per-game settings | Not checked (page blocked automated reading) |
 | https://pcsx2.net/docs/ | PCSX2 documentation overview | Checked (overview only) |
 

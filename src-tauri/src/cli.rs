@@ -44,6 +44,12 @@ pub enum Command {
         #[arg(long)]
         set: Option<String>,
     },
+    /// List emulators and their status, or set one up.
+    Emulators {
+        /// Emulator to install and set up: `retroarch` or `dolphin`.
+        #[arg(long)]
+        setup: Option<String>,
+    },
 }
 
 #[derive(Debug, Args, PartialEq, Eq)]
@@ -102,6 +108,7 @@ impl Command {
             Command::Download { .. } => "download",
             Command::Remove { .. } => "remove",
             Command::Storage { .. } => "storage",
+            Command::Emulators { .. } => "emulators",
         }
     }
 }
@@ -236,6 +243,17 @@ mod tests {
         assert!(parse(&["update", "--rollback", "--set-token"]).is_err());
         assert!(parse(&["download"]).is_err());
         assert!(parse(&["remove"]).is_err());
+        assert!(parse(&["emulators", "--setup"]).is_err());
+        assert_eq!(
+            parse(&["emulators", "--setup", "dolphin"]).unwrap().command,
+            Some(Command::Emulators {
+                setup: Some("dolphin".into())
+            })
+        );
+        assert_eq!(
+            parse(&["emulators"]).unwrap().command,
+            Some(Command::Emulators { setup: None })
+        );
         // There is no way to delete from Drive.
         assert!(parse(&["delete", "gba-00000001"]).is_err());
         assert!(parse(&["remove", "gba-00000001", "--scope", "drive"]).is_err());
