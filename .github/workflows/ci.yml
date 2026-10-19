@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Lint and test
+    # SteamOS 3 is Arch-based with a recent glibc; building on 22.04 keeps the AppImage's glibc floor low.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libudev-dev libfuse2 file
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
+
+      - name: Install front-end packages
+        run: |
+          npm ci
+          npm ci --prefix ui
+
+      - name: Front end lint, test, build
+        run: |
+          npm --prefix ui run lint
+          npm --prefix ui test
+          npm --prefix ui run build
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace
+
+      - name: Build AppImage
+        run: npx tauri build --bundles appimage
+
+      - name: Rename AppImage
+        run: |
+          mkdir -p out
+          cp target/release/bundle/appimage/*.AppImage out/romshelf.AppImage
+          chmod +x out/romshelf.AppImage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: romshelf-appimage
+          path: out/romshelf.AppImage
+          if-no-files-found: error
