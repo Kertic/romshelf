@@ -2,7 +2,7 @@
 
 ## Stage 4: emulator registry and setup (branch `stage-04-emulator-setup`, on top of stage 3)
 
-Status: **built; waiting for on-Deck checks and the two Confirm items.**
+Status: **passed on the Deck 2026-10-19** (you counted it as passed; the "needs setting up" screen wasn't seen because Dolphin was already set up). Both Confirm items checked.
 
 ### Built
 
@@ -47,10 +47,10 @@ Status: **built; waiting for on-Deck checks and the two Confirm items.**
 
 ### On-Deck checklist
 
-- [ ] With Dolphin not installed, open a GameCube game's actions: it says "Needs Dolphin" and offers **Set up Dolphin** first (screen 2b).
-- [ ] Press **Set up Dolphin**: it installs with visible progress and the game then shows "Runs in Dolphin" (screen 2).
-- [ ] Do the same for RetroArch (or **Repair** it if EmuDeck already installed it) and confirm the snes9x, mgba and mupen64plus_next cores are present.
-- [ ] The Emulators screen shows both as installed.
+- [x] With Dolphin not installed, open a GameCube game's actions: it says "Needs Dolphin" and offers **Set up Dolphin** first (screen 2b). Not seen on the Deck: Dolphin (installed by EmuDeck) was already set up through the Emulators screen. Covered by the UI tests; counted as passed at your request.
+- [x] Press **Set up Dolphin**: it installs with visible progress and the game then shows "Runs in Dolphin" (screen 2). 2026-10-19: setup ran from the Emulators screen; Twilight Princess (`.rvz`) shows "Runs in Dolphin". No install needed, since EmuDeck had installed Dolphin.
+- [x] Do the same for RetroArch (or **Repair** it if EmuDeck already installed it) and confirm the snes9x, mgba and mupen64plus_next cores are present. 2026-10-19: set up; all three cores were already present.
+- [x] The Emulators screen shows both as installed. 2026-10-19: `romshelf emulators` and the Emulators screen show both Installed.
 
 ## Stage 3: download, remove and storage (branch `stage-03-download-delete`)
 
