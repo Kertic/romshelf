@@ -20,6 +20,8 @@ pub struct AppState {
     pub login_cancel: Arc<AtomicBool>,
     /// Fake mode only: where the fake sign-in's Google answers are scripted.
     pub fake_http: Option<Arc<FakeHttp>>,
+    /// A newer version installed in the background this session.
+    pub update_ready: Mutex<Option<String>>,
     /// Keeps fake mode's temp directory alive for the life of the app.
     _fake_root: Option<tempfile::TempDir>,
 }
@@ -38,6 +40,7 @@ impl AppState {
                 registry: Registry::default(),
                 connection: Arc::new(connection),
                 login_cancel: Arc::new(AtomicBool::new(false)),
+                update_ready: Mutex::new(None),
                 fake_http: None,
                 paths,
                 _fake_root: None,
@@ -75,6 +78,7 @@ impl AppState {
             registry: Registry::default(),
             connection: Arc::new(connection),
             login_cancel: Arc::new(AtomicBool::new(false)),
+            update_ready: Mutex::new(None),
             fake_http: Some(http),
             _fake_root: Some(root),
         })

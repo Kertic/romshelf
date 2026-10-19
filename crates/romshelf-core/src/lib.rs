@@ -20,5 +20,6 @@ pub mod steam;
 pub mod sync;
 pub mod tokens;
 pub mod transfer;
+pub mod update;
 
 pub use error::{Error, Result};

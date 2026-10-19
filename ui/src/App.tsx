@@ -3,7 +3,9 @@ import {
   appInfo,
   connectionStatus,
   library,
+  onUpdateReady,
   quit,
+  updateReady,
   type AppInfo,
   type ConnectionStatus,
   type LibraryEntry,
@@ -29,6 +31,19 @@ export function App() {
   const [focusHint, setFocusHint] = useState<string | null>(null);
   const [back, setBackState] = useState<BackAction | null>(null);
   const backRef = useRef<BackAction | null>(null);
+  const [newVersion, setNewVersion] = useState<string | null>(null);
+
+  // A newer build may finish downloading at any time while Romshelf is open.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let live = true;
+    updateReady().then((v) => live && v && setNewVersion(v)).catch(() => {});
+    onUpdateReady((v) => setNewVersion(v)).then((u) => (live ? (unlisten = u) : u()));
+    return () => {
+      live = false;
+      unlisten?.();
+    };
+  }, []);
 
   const setBack = useCallback((b: BackAction | null) => {
     backRef.current = b;
@@ -127,6 +142,7 @@ export function App() {
           entries={entries}
           error={error}
           driveFolder={status?.drive_folder ?? null}
+          newVersion={newVersion}
           onOpenSpike={() => setScreen("spike")}
           onQuit={() => void quit()}
         />

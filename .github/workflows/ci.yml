@@ -5,6 +5,8 @@ on:
     branches: ["**"]
   pull_request:
   workflow_dispatch:
+  # The release workflow reuses this build.
+  workflow_call:
 
 env:
   CARGO_TERM_COLOR: always

@@ -24,18 +24,25 @@ interface Props {
   error: string | null;
   /** "My Drive / Emulation", once a Drive folder is chosen. */
   driveFolder: string | null;
+  /** A newer Romshelf that runs from the next start. */
+  newVersion?: string | null;
   onOpenSpike: () => void;
   onQuit: () => void;
 }
 
 /** Stage 0 shell: top band, the library as plain tiles, and the two test actions. */
-export function Home({ info, entries, error, driveFolder, onOpenSpike, onQuit }: Props) {
+export function Home({ info, entries, error, driveFolder, newVersion, onOpenSpike, onQuit }: Props) {
   const onDeck = entries?.filter((e) => e.rom.location.state === "on_deck").length ?? 0;
   return (
     <>
       <header className="top-band">
         <div className="app-name">Romshelf</div>
         <div className="top-spacer" />
+        {newVersion && (
+          <span className="update-note" role="status">
+            Romshelf {newVersion} is ready. Restart Romshelf to use it.
+          </span>
+        )}
         {info?.fake && <span className="badge">Fixture library</span>}
         <span className="mono muted">v{info?.version ?? "…"}</span>
       </header>

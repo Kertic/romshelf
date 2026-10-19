@@ -26,6 +26,8 @@ pub enum Command {
     /// Steam shortcuts.
     #[command(subcommand)]
     Steam(SteamCommand),
+    /// Install a newer Romshelf now, roll back, or set the GitHub token for updates.
+    Update(UpdateArgs),
 }
 
 #[derive(Debug, Args, PartialEq, Eq)]
@@ -54,6 +56,16 @@ pub enum AuthCommand {
     Status,
 }
 
+#[derive(Debug, Args, PartialEq, Eq, Default)]
+pub struct UpdateArgs {
+    /// Put the previous version back.
+    #[arg(long, conflicts_with = "set_token")]
+    pub rollback: bool,
+    /// Store a read-only GitHub token (needed while the repository is private).
+    #[arg(long)]
+    pub set_token: bool,
+}
+
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum SteamCommand {
     /// Write pending shortcut changes to Steam.
@@ -70,6 +82,7 @@ impl Command {
             Command::Doctor { .. } => "doctor",
             Command::Auth(_) => "auth",
             Command::Steam(_) => "steam",
+            Command::Update(_) => "update",
         }
     }
 }
@@ -155,6 +168,24 @@ mod tests {
             parse(&["steam", "list"]).unwrap().command,
             Some(Command::Steam(SteamCommand::List))
         );
+        assert_eq!(
+            parse(&["update"]).unwrap().command,
+            Some(Command::Update(UpdateArgs::default()))
+        );
+        assert_eq!(
+            parse(&["update", "--rollback"]).unwrap().command,
+            Some(Command::Update(UpdateArgs {
+                rollback: true,
+                set_token: false
+            }))
+        );
+        assert_eq!(
+            parse(&["update", "--set-token"]).unwrap().command,
+            Some(Command::Update(UpdateArgs {
+                rollback: false,
+                set_token: true
+            }))
+        );
     }
 
     #[test]
@@ -163,5 +194,6 @@ mod tests {
         assert!(parse(&["auth"]).is_err());
         assert!(parse(&["steam", "nope"]).is_err());
         assert!(parse(&["doctor", "--bogus"]).is_err());
+        assert!(parse(&["update", "--rollback", "--set-token"]).is_err());
     }
 }

@@ -1,0 +1,72 @@
+name: Release
+
+# Push a tag like v0.2.0 (matching the workspace version in Cargo.toml) to publish a release
+# that Romshelf on the Deck installs by itself.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Sign and publish
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag matches the version in Cargo.toml
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} doesn't match Cargo.toml version ${version}. Bump the version, commit, then tag v${version}."
+            exit 1
+          fi
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: romshelf-appimage
+          path: out
+
+      - name: Write and sign the update manifest
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${UPDATE_SIGNING_KEY}" ]; then
+            echo "::error::The UPDATE_SIGNING_KEY secret is missing. Run scripts/new-update-key.sh (see docs/releasing.md)."
+            exit 1
+          fi
+          cd out
+          sha=$(sha256sum romshelf.AppImage | cut -d' ' -f1)
+          size=$(stat -c%s romshelf.AppImage)
+          printf '{"version":"%s","sha256":"%s","size":%s}' "${VERSION}" "${sha}" "${size}" > romshelf-update.json
+
+          key=$(mktemp)
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "${UPDATE_SIGNING_KEY}" > "$key"
+          openssl pkeyutl -sign -inkey "$key" -rawin -in romshelf-update.json -out sig.bin
+          base64 -w0 sig.bin > romshelf-update.json.sig
+
+          # Check against the public key built into Romshelf, so a mismatched key fails here
+          # and not on the Deck. 302a300506032b6570032100 is the Ed25519 public key header.
+          { printf '\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00'; base64 -d ../crates/romshelf-core/update-key.pub; } > pub.der
+          openssl pkey -pubin -inform DER -in pub.der -out pub.pem
+          openssl pkeyutl -verify -pubin -inkey pub.pem -rawin -in romshelf-update.json -sigfile sig.bin
+          rm sig.bin pub.der pub.pem
+          cat romshelf-update.json
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            out/romshelf.AppImage out/romshelf-update.json out/romshelf-update.json.sig \
+            --title "Romshelf ${VERSION}" --generate-notes

@@ -4,6 +4,7 @@ mod auth_cli;
 pub mod cli;
 mod gamepad;
 mod state;
+mod update_cli;
 
 use clap::Parser;
 use cli::{Cli, Command};
@@ -12,6 +13,7 @@ use romshelf_core::connection::{Connection, Folder, Status};
 use romshelf_core::drive::scaffold;
 use romshelf_core::library::{self, LibraryEntry};
 use romshelf_core::paths::Paths;
+use romshelf_core::update::{self, Outcome};
 use romshelf_core::Error;
 use romshelf_testkit::connection::{script_login, simulate_browser};
 use serde::Serialize;
@@ -40,6 +42,30 @@ pub fn run() -> i32 {
                 cmd,
                 &conn,
                 &open_browser,
+                &mut std::io::stdin().lock(),
+                &mut std::io::stdout(),
+            )
+        }
+        Some(Command::Update(args)) => {
+            let paths = match Paths::from_env() {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("Couldn't find Romshelf's folders: {e}");
+                    return 1;
+                }
+            };
+            let tokens = romshelf_core::connection::real_token_store(&paths);
+            let updater = match update::for_running_appimage(&paths, &tokens) {
+                Ok(u) => u,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return 1;
+                }
+            };
+            update_cli::run(
+                args,
+                updater.as_ref(),
+                &tokens,
                 &mut std::io::stdin().lock(),
                 &mut std::io::stdout(),
             )
@@ -199,6 +225,39 @@ async fn drive_setup(
     .map_err(UiError::from)
 }
 
+/// The version downloaded in the background this session, if any. Runs from the next start.
+#[tauri::command]
+fn update_ready(state: tauri::State<'_, AppState>) -> Option<String> {
+    state.update_ready.lock().ok().and_then(|v| v.clone())
+}
+
+/// Checks for a newer build once a day, in the background, and installs it in place.
+/// Emits `update-ready` with the version when one is in place.
+fn start_update_check(app: tauri::AppHandle) {
+    let state = app.state::<AppState>();
+    if state.fake {
+        return;
+    }
+    let paths = state.paths.clone();
+    std::thread::spawn(move || {
+        let tokens = romshelf_core::connection::real_token_store(&paths);
+        let result = update::for_running_appimage(&paths, &tokens)
+            .and_then(|u| u.map(|u| u.run(false)).transpose());
+        match result {
+            Ok(Some(Outcome::Updated(v))) => {
+                let v = v.to_string();
+                if let Ok(mut slot) = app.state::<AppState>().update_ready.lock() {
+                    *slot = Some(v.clone());
+                }
+                let _ = app.emit("update-ready", v);
+            }
+            Ok(_) => {}
+            // Offline or GitHub unavailable: try again at the next start.
+            Err(e) => eprintln!("Update check failed: {e}"),
+        }
+    });
+}
+
 #[tauri::command]
 fn quit(app: tauri::AppHandle) {
     app.exit(0);
@@ -244,6 +303,7 @@ fn run_interface() -> i32 {
             auth_cancel,
             drive_folders,
             drive_setup,
+            update_ready,
             quit
         ])
         .setup(move |app| {
@@ -254,6 +314,7 @@ fn run_interface() -> i32 {
                 .focused(true)
                 .build()?;
             gamepad::start(app.handle().clone());
+            start_update_check(app.handle().clone());
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.set_focus();
             }

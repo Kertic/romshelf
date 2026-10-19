@@ -149,6 +149,17 @@ export async function onSetupProgress(handler: (path: string) => void): Promise<
   return listen<string>("setup-progress", (e) => handler(e.payload));
 }
 
+/** A newer Romshelf installed in the background this session; it runs from the next start. */
+export async function updateReady(): Promise<string | null> {
+  if (!inTauri()) return null;
+  return invoke<string | null>("update_ready");
+}
+
+export async function onUpdateReady(handler: (version: string) => void): Promise<UnlistenFn> {
+  if (!inTauri()) return () => {};
+  return listen<string>("update-ready", (e) => handler(e.payload));
+}
+
 export async function onGilrs(handler: (s: GilrsSnapshot) => void): Promise<UnlistenFn> {
   if (!inTauri()) return () => {};
   return listen<GilrsSnapshot>("gilrs", (e) => handler(e.payload));

@@ -20,6 +20,18 @@ use std::time::Duration;
 /// Keyring service name.
 pub const KEYRING_SERVICE: &str = "romshelf";
 
+/// The keyring, falling back silently to the private token file.
+pub fn real_token_store(paths: &Paths) -> FallbackTokenStore<KeyringTokenStore, FileTokenStore> {
+    FallbackTokenStore {
+        primary: KeyringTokenStore {
+            service: KEYRING_SERVICE.into(),
+        },
+        fallback: FileTokenStore {
+            path: paths.token_file(),
+        },
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Status {
     pub client_configured: bool,
@@ -60,14 +72,7 @@ impl Connection {
     /// Google over HTTPS, tokens in the keyring or the private token file.
     pub fn real(paths: &Paths) -> Result<Connection> {
         let http = Arc::new(ReqwestTransport::new()?);
-        let tokens = Arc::new(FallbackTokenStore {
-            primary: KeyringTokenStore {
-                service: KEYRING_SERVICE.into(),
-            },
-            fallback: FileTokenStore {
-                path: paths.token_file(),
-            },
-        });
+        let tokens = Arc::new(real_token_store(paths));
         let auth = Arc::new(GoogleAuth::new(http.clone(), tokens, Arc::new(SystemClock)));
         let drive = Arc::new(GoogleDrive::new(auth.clone(), http));
         Ok(Connection::new(auth, drive, paths.settings_file()))
