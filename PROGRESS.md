@@ -42,7 +42,7 @@ Status: **built; waiting for on-Deck checks.**
 - [ ] Download a large ROM; progress moves and the time estimate is sensible.
 - [ ] Turn Wi-Fi off mid-download and back on; it completes.
 - [ ] Delete from Drive, then find the file in Drive's trash.
-- [ ] Set the storage root to the SD card and download there.
+- [ ] Set the storage root to the SD card and download there. Postponed 2026-10-19 at your request: ROMs stay on internal storage for now. The card is mounted at `/run/media/deck/FF8S5` (121 GB free), so the command is `romshelf storage --set /run/media/deck/FF8S5/Romshelf`.
 
 ## Stage 2: library index and sync (branch `stage-02-library-sync`)
 
