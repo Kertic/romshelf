@@ -4,18 +4,22 @@ import {
   cancelDownload,
   connectionStatus,
   download,
+  emulators as listEmulators,
   library,
   onLibraryChanged,
   onSyncStatus,
   onTransfer,
+  onEmulatorSetup,
   onUpdateReady,
   quit,
   removeFromDeck,
+  setupEmulator,
   storageStatus,
   syncNow,
   syncStatus,
   updateReady,
   type AppInfo,
+  type EmulatorView,
   type ConnectionStatus,
   type LibraryEntry,
   type Progress,
@@ -26,13 +30,14 @@ import { FirstRun, type BackAction } from "./FirstRun";
 import { focusables, moveFocus, type Direction } from "./focus";
 import { Footer, type Hint } from "./Footer";
 import { GamepadSpike } from "./GamepadSpike";
+import { Emulators, type SetupState } from "./Emulators";
 import { Home } from "./Home";
 import type { Button } from "./input";
 import { nextTab } from "./library";
 import { RomDialog } from "./RomActions";
 import { useInput } from "./useInput";
 
-type Screen = "loading" | "first-run" | "home" | "spike";
+type Screen = "loading" | "first-run" | "home" | "emulators" | "spike";
 
 const HOLD_TO_LEAVE_MS = 1000;
 
@@ -55,6 +60,10 @@ export function App() {
   /** The last thing that went wrong with each game's download. */
   const [transferErrors, setTransferErrors] = useState<Record<string, string>>({});
   const [storage, setStorage] = useState<StorageStatus | null>(null);
+  const [emulatorList, setEmulatorList] = useState<EmulatorView[] | null>(null);
+  const [emulatorError, setEmulatorError] = useState<string | null>(null);
+  /** Emulator setups running or just finished, by emulator id. */
+  const [setups, setSetups] = useState<Record<string, SetupState>>({});
   const setBack = useCallback((b: BackAction | null) => {
     backRef.current = b;
     setBackState(b);
@@ -113,6 +122,63 @@ export function App() {
       unlisten?.();
     };
   }, []);
+
+  const loadEmulators = useCallback(() => {
+    setEmulatorError(null);
+    listEmulators()
+      .then(setEmulatorList)
+      .catch((e) => setEmulatorError(e?.message ?? `Couldn't check the emulators: ${String(e)}. Try again.`));
+  }, []);
+
+  // Emulator setup progress; a finished setup changes the library's "Needs …" too.
+  useEffect(() => {
+    let live = true;
+    let unlisten: (() => void) | null = null;
+    onEmulatorSetup((u) => {
+      setSetups((all) => {
+        const prev = all[u.emulator_id];
+        const running = u.kind === "step" || u.kind === "progress";
+        return {
+          ...all,
+          [u.emulator_id]: {
+            step: u.kind === "step" ? u.step : (prev?.step ?? null),
+            percent: u.kind === "progress" ? u.percent : u.kind === "step" ? null : (prev?.percent ?? null),
+            running,
+            message: running ? null : u.message,
+            failed: u.kind === "failed",
+          },
+        };
+      });
+      if (u.kind === "done" || u.kind === "failed") loadEmulators();
+    }).then((un) => (live ? (unlisten = un) : un()));
+    return () => {
+      live = false;
+      unlisten?.();
+    };
+  }, [loadEmulators]);
+
+  const startSetup = useCallback((id: string, repair = false) => {
+    setSetups((all) => ({ ...all, [id]: { step: "Starting", percent: null, running: true, message: null, failed: false } }));
+    setupEmulator(id, repair).catch((e) =>
+      setSetups((all) => ({
+        ...all,
+        [id]: { step: null, percent: null, running: false, failed: true, message: e?.message ?? String(e) },
+      })),
+    );
+  }, []);
+
+  const openEmulators = useCallback(() => {
+    setScreen("emulators");
+    // B goes back to the Library.
+    setBack({
+      label: "Library",
+      run: () => {
+        setBack(null);
+        setScreen("home");
+      },
+    });
+    loadEmulators();
+  }, [loadEmulators, setBack]);
 
   // A newer build may finish downloading at any time while Romshelf is open.
   useEffect(() => {
@@ -223,6 +289,17 @@ export function App() {
     const t = setTimeout(() => setScreen("home"), HOLD_TO_LEAVE_MS);
     return () => clearTimeout(t);
   }, [holdingB]);
+  // The Emulators screen: focus starts on the first emulator's button.
+  useEffect(() => {
+    if (screen !== "emulators") return;
+    const t = setTimeout(() => {
+      if (document.activeElement && document.activeElement !== document.body) return;
+      (document.querySelector<HTMLElement>(".emulator-row button:not([disabled])") ?? focusables()[0])?.focus();
+      syncHint();
+    });
+    return () => clearTimeout(t);
+  }, [screen, emulatorList, syncHint]);
+
   const focusedTab = useRef<string | null>(null);
   useEffect(() => {
     if (screen !== "home") {
@@ -270,6 +347,7 @@ export function App() {
           storage={storage}
           onOpen={setDialogRom}
           onOpenSpike={() => setScreen("spike")}
+          onOpenEmulators={openEmulators}
           onQuit={() => void quit()}
         />
       )}
@@ -286,8 +364,22 @@ export function App() {
             closeDialog();
             reloadLibrary();
           }}
+          onSetupEmulator={() => dialogEntry.emulator_id && startSetup(dialogEntry.emulator_id)}
+          setup={dialogEntry.emulator_id ? setups[dialogEntry.emulator_id] : undefined}
           onClose={closeDialog}
           setBack={setBack}
+        />
+      )}
+      {screen === "emulators" && (
+        <Emulators
+          list={emulatorList}
+          error={emulatorError}
+          setups={setups}
+          onSetup={startSetup}
+          onBack={() => {
+            setBack(null);
+            setScreen("home");
+          }}
         />
       )}
       {screen === "spike" && <GamepadSpike input={input} holdingB={holdingB} />}

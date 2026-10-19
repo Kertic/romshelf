@@ -24,6 +24,14 @@ impl EmulatorAdapter for Dolphin {
         "org.DolphinEmu.dolphin-emu"
     }
 
+    /// A Dolphin user folder of Romshelf's own, passed with `-u` (Confirm in stage 5), so the
+    /// user's own Dolphin settings and memory cards are never touched.
+    fn session_dir(&self, paths: &Paths) -> PathBuf {
+        paths
+            .flatpak_app_dir(self.flatpak_id())
+            .join("data/romshelf-user")
+    }
+
     fn launch_command(&self, _rom: &Rom, session: &LaunchSession) -> Result<CommandSpec> {
         // `-b` exits Dolphin when the game stops; `-e` runs the file. Confirm in stage 5.
         let rom_path = session.rom_path.to_string_lossy();

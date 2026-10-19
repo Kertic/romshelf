@@ -81,7 +81,11 @@ describe("tile status", () => {
     system_label: "GBA",
     system_colour: "#1F6B62",
     emulator: "RetroArch",
+    emulator_id: "retroarch",
+    core: "mgba",
     emulator_installed: true,
+    emulator_ready: true,
+    actions: [],
     in_steam: false,
   };
   it("follows the guide's wording", () => {

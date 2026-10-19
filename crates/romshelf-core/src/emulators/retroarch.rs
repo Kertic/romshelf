@@ -8,7 +8,19 @@ use std::path::PathBuf;
 pub struct RetroArch;
 
 impl RetroArch {
-    /// Libretro core per system. Confirm in stage 4: core names and their install location.
+    /// The config file passed with `--appendconfig` when Romshelf starts a game.
+    pub fn append_config(paths: &Paths) -> PathBuf {
+        RetroArch.session_dir(paths).join("romshelf.cfg")
+    }
+
+    /// A core's file in the RetroArch Flatpak's cores folder.
+    pub fn core_file(paths: &Paths, core: &str) -> PathBuf {
+        paths
+            .retroarch_cores_dir()
+            .join(format!("{core}_libretro.so"))
+    }
+
+    /// Libretro core per system (stage 4's table).
     pub fn core_for(system: System) -> Option<&'static str> {
         match system {
             System::Snes => Some("snes9x"),
@@ -34,6 +46,36 @@ impl EmulatorAdapter for RetroArch {
 
     fn flatpak_id(&self) -> &'static str {
         "org.libretro.RetroArch"
+    }
+
+    fn required_cores(&self) -> Vec<&'static str> {
+        self.systems()
+            .iter()
+            .filter_map(|s| RetroArch::core_for(*s))
+            .collect()
+    }
+
+    /// Saves, states and BIOS in Romshelf's own folders, through a config file appended with
+    /// `--appendconfig`; the user's `retroarch.cfg` is never edited.
+    fn prepare_session(&self, paths: &Paths) -> Result<()> {
+        let session = self.session_dir(paths);
+        for sub in ["saves", "states", "system"] {
+            std::fs::create_dir_all(session.join(sub))?;
+        }
+        let cfg = format!(
+            "# Written by Romshelf. Appended to RetroArch's own settings for games Romshelf starts.\n\
+             savefile_directory = \"{}\"\n\
+             savestate_directory = \"{}\"\n\
+             system_directory = \"{}\"\n",
+            session.join("saves").display(),
+            session.join("states").display(),
+            session.join("system").display(),
+        );
+        let file = RetroArch::append_config(paths);
+        if std::fs::read_to_string(&file).ok().as_deref() != Some(cfg.as_str()) {
+            std::fs::write(file, cfg)?;
+        }
+        Ok(())
     }
 
     fn launch_command(&self, rom: &Rom, session: &LaunchSession) -> Result<CommandSpec> {
