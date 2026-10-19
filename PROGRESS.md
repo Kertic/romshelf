@@ -2,7 +2,7 @@
 
 ## Stage 6: saves and save states (branch `stage-06-saves`, on top of stage 5)
 
-Status: **built; waiting for the on-Deck checks.**
+Status: **on-Deck checks passed 2026-10-19.**
 
 ### Built
 
@@ -79,19 +79,21 @@ Also 2 unit tests (UTC folder names, the save hash), 13 UI tests (time wording, 
 - **Save files are kept flat:** the files in the game's folder, not sub-folders. Neither emulator writes sub-folders there.
 - **The machine's name** in each backup is `/etc/hostname` ("steamdeck").
 
-### Confirm (on the Deck)
+### Confirmed on the Deck (2026-10-19)
 
-- RetroArch reads both files given to `--appendconfig` joined with `|`, so saves land in `saves/<rom-id>/`.
-- Dolphin 2407 uses `GCIFolderAPathOverride`. Checked so far: the setting name exists in the Deck's `dolphin-emu` binary, and Twilight Princess's RVZ header has `GZ2E01` at 0x58.
+- RetroArch reads both files given to `--appendconfig` joined with `|`: Kirby's saves landed in its own folder and were backed up from there (check 1).
+- Dolphin 2407 honours `GCIFolderAPathOverride`: Twilight Princess kept its moved save and backed it up from its own card folder (check 2). The setting name is in the Deck's `dolphin-emu` binary, and the RVZ header has `GZ2E01` at 0x58.
 
 ### On-Deck checklist
 
-- [ ] Play Kirby, save in game, quit with View + Menu: the game's dialog shows a new "Backed up" time, and `Emulation/saves/gba/<rom-id>/<time>/` exists in Drive with the `.srm` and `manifest.json`.
-- [ ] Play Twilight Princess: your existing save is still there (moved into Romshelf's per-game card folder). Save, quit: a backup with `01-GZ2E-gczelda2.gci` appears in Drive.
-- [ ] Delete the local save (`~/.var/app/org.libretro.RetroArch/config/romshelf/saves/<rom-id>/`), then **Restore save from Drive…** and pick the newest. Launch: progress is intact.
-- [ ] Restore an older version: the game shows the older progress, and the newer version is still in the list.
-- [ ] Airplane mode: play and quit. The dialog says "Waiting to back up". Reconnect and open Romshelf (or sync): the backup uploads and a "Backed up …" toast shows.
-- [ ] Quit a game with Steam button → **Exit game**: the next time Romshelf opens, the save is backed up.
+- [x] Play Kirby, save in game, quit with View + Menu: the game's dialog shows a new "Backed up" time, and `Emulation/saves/gba/<rom-id>/<time>/` exists in Drive with the `.srm` and `manifest.json`.
+- [x] Play Twilight Princess: your existing save is still there (moved into Romshelf's per-game card folder). Save, quit: a backup with `01-GZ2E-gczelda2.gci` appears in Drive.
+- [x] Delete the local save (`~/.var/app/org.libretro.RetroArch/config/romshelf/saves/<rom-id>/`), then **Restore save from Drive…** and pick the newest. Launch: progress is intact.
+- [x] Restore an older version: the game shows the older progress, and the newer version is still in the list.
+- [x] Airplane mode: play and quit. The dialog says "Waiting to back up". Reconnect and open Romshelf (or sync): the backup uploads and a "Backed up …" toast shows.
+- [x] Quit a game with Steam button → **Exit game**: the next time Romshelf opens, the save is backed up.
+
+All six passed on the Deck, 2026-10-19 (your report).
 
 ## Stage 5: launch pipeline (branch `stage-05-launch-pipeline`, on top of stage 4)
 
