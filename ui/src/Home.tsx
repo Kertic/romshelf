@@ -22,12 +22,14 @@ interface Props {
   info: AppInfo | null;
   entries: LibraryEntry[] | null;
   error: string | null;
+  /** "My Drive / Emulation", once a Drive folder is chosen. */
+  driveFolder: string | null;
   onOpenSpike: () => void;
   onQuit: () => void;
 }
 
 /** Stage 0 shell: top band, the library as plain tiles, and the two test actions. */
-export function Home({ info, entries, error, onOpenSpike, onQuit }: Props) {
+export function Home({ info, entries, error, driveFolder, onOpenSpike, onQuit }: Props) {
   const onDeck = entries?.filter((e) => e.rom.location.state === "on_deck").length ?? 0;
   return (
     <>
@@ -52,8 +54,8 @@ export function Home({ info, entries, error, onOpenSpike, onQuit }: Props) {
 
         {entries && entries.length === 0 && (
           <div className="empty">
-            <span className="mono">My Drive / Emulation / roms</span>
-            <p>No ROMs yet. Google Drive sign-in arrives in the next build; for now this screen is empty.</p>
+            <span className="mono">{driveFolder ?? "My Drive / Emulation"} / roms</span>
+            <p>Upload ROMs to this folder from any device. Romshelf lists them once syncing arrives in the next build.</p>
           </div>
         )}
 

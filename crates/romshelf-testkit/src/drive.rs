@@ -1,7 +1,10 @@
-use romshelf_core::drive::{Change, ChangePage, DriveClient, DriveFile, FOLDER_MIME};
+use romshelf_core::drive::{Account, Change, ChangePage, DriveClient, DriveFile, FOLDER_MIME};
 use romshelf_core::{Error, Result};
 use std::collections::BTreeMap;
 use std::sync::Mutex;
+
+/// The account the fake Drive reports as signed in.
+pub const FAKE_ACCOUNT: &str = "player@example.com";
 
 /// In-memory Drive: a folder tree with a change feed. The root folder id is `root`.
 pub struct FakeDrive {
@@ -87,6 +90,13 @@ impl FakeDrive {
 }
 
 impl DriveClient for FakeDrive {
+    fn about(&self) -> Result<Account> {
+        Ok(Account {
+            email: FAKE_ACCOUNT.into(),
+            name: "Fixture Player".into(),
+        })
+    }
+
     fn create_folder(&self, name: &str, parent: &str) -> Result<DriveFile> {
         self.state
             .lock()
@@ -99,6 +109,15 @@ impl DriveClient for FakeDrive {
             .lock()
             .unwrap()
             .insert(name, parent, "application/octet-stream", Some(bytes))
+    }
+
+    fn update_content(&self, id: &str, bytes: &[u8]) -> Result<DriveFile> {
+        let mut s = self.state.lock().unwrap();
+        if s.files.get(id).is_none_or(DriveFile::is_folder) {
+            return Err(Error::NotFound(format!("file {id}")));
+        }
+        s.content.insert(id.into(), bytes.to_vec());
+        s.update(id, |f| f.size = bytes.len() as u64)
     }
 
     fn list(&self, parent: &str) -> Result<Vec<DriveFile>> {

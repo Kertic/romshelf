@@ -27,16 +27,17 @@ Everything external goes through a trait with a real and a fake implementation. 
 
 | Trait | Module | Real | Fake |
 |---|---|---|---|
-| `DriveClient` | `drive` | Google Drive REST (stage 1) | `FakeDrive` |
+| `DriveClient` | `drive` | `GoogleDrive` (Drive v3 REST) | `FakeDrive` |
+| `HttpTransport` | `http` | `ReqwestTransport` (under `GoogleDrive` and `GoogleAuth`) | `FakeHttp` |
 | `PackageRunner` | `process` | `FlatpakRunner` | `FakePackageRunner` |
 | `ProcessRunner` | `process` | `SystemProcessRunner` | `FakeProcessRunner` |
 | `SteamFiles` | `steam` | `FsSteamFiles` on `~/.steam/steam` | `FakeSteam` (temp copy) |
-| `TokenStore` | `tokens` | keyring (stage 1), `FileTokenStore` 0600 fallback | `MemoryTokenStore` |
+| `TokenStore` | `tokens` | `KeyringTokenStore` with silent `FileTokenStore` 0600 fallback (`FallbackTokenStore`) | `MemoryTokenStore` |
 | `Clock` | `clock` | `SystemClock` | `FakeClock` |
 
 `Paths` (`paths.rs`) holds every filesystem location; nothing else builds paths from `~`.
 `ROMSHELF_FAKE=1` starts the app on a temp root seeded with the eight-ROM fixture library.
-Other env flags: `ROMSHELF_WINDOWED=1` (no full screen), `ROMSHELF_FULLSCREEN=1` (full screen in debug builds).
+Other env flags: `ROMSHELF_WINDOWED=1` (no full screen), `ROMSHELF_FULLSCREEN=1` (full screen in debug builds), `ROMSHELF_FAKE_FIRST_RUN=1` (with `ROMSHELF_FAKE=1`: start signed out to walk the first run).
 
 ## How to work
 

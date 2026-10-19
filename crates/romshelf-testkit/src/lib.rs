@@ -1,16 +1,18 @@
 //! In-memory fakes for every outside-world seam, plus the fixture library.
 //! Tests use only these. `ROMSHELF_FAKE=1` makes the app use them too.
 
+pub mod connection;
 mod drive;
 pub mod fixtures;
 
-pub use drive::FakeDrive;
+pub use drive::{FakeDrive, FAKE_ACCOUNT};
 
 use romshelf_core::clock::Clock;
+use romshelf_core::http::{HttpRequest, HttpResponse, HttpTransport};
 use romshelf_core::process::{CommandOutput, CommandSpec, PackageRunner, ProcessRunner};
 use romshelf_core::steam::FsSteamFiles;
 use romshelf_core::tokens::TokenStore;
-use romshelf_core::Result;
+use romshelf_core::{Error, Result};
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -78,6 +80,60 @@ impl ProcessRunner for FakeProcessRunner {
             std::thread::sleep(delay);
         }
         Ok(code)
+    }
+}
+
+enum Scripted {
+    Response(HttpResponse),
+    Network(String),
+}
+
+/// Answers HTTP requests from a script, in order, and records every request.
+#[derive(Default)]
+pub struct FakeHttp {
+    requests: Mutex<Vec<HttpRequest>>,
+    script: Mutex<VecDeque<Scripted>>,
+}
+
+impl FakeHttp {
+    pub fn push(&self, status: u16, body: &str) {
+        self.script
+            .lock()
+            .unwrap()
+            .push_back(Scripted::Response(HttpResponse {
+                status,
+                body: body.as_bytes().to_vec(),
+            }));
+    }
+
+    pub fn push_network_error(&self, message: &str) {
+        self.script
+            .lock()
+            .unwrap()
+            .push_back(Scripted::Network(message.into()));
+    }
+
+    pub fn requests(&self) -> Vec<HttpRequest> {
+        self.requests.lock().unwrap().clone()
+    }
+
+    /// How many scripted answers are still unused.
+    pub fn remaining(&self) -> usize {
+        self.script.lock().unwrap().len()
+    }
+}
+
+impl HttpTransport for FakeHttp {
+    fn send(&self, req: &HttpRequest) -> Result<HttpResponse> {
+        self.requests.lock().unwrap().push(req.clone());
+        match self.script.lock().unwrap().pop_front() {
+            Some(Scripted::Response(r)) => Ok(r),
+            Some(Scripted::Network(m)) => Err(Error::Network(m)),
+            None => Err(Error::External(format!(
+                "FakeHttp: unscripted {} {}",
+                req.method, req.url
+            ))),
+        }
     }
 }
 

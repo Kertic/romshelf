@@ -1,5 +1,64 @@
 # Progress
 
+## Stage 1: Google Drive connection (branch `stage-01-drive-connection`)
+
+Status: **built; waiting for on-Deck checks.**
+
+### Built
+
+- `http.rs`: an `HttpTransport` seam (`ReqwestTransport`, rustls) under the Google client so its retry and token logic is tested with `FakeHttp`.
+- `auth.rs`: client JSON parsing ("Desktop app" only), PKCE S256, consent URL (`drive` scope, offline, `prompt=consent`), one-shot loopback listener on `127.0.0.1:<random>` that checks `state`, ignores stray requests such as `/favicon.ico`, times out and can be cancelled; code exchange (refuses a grant without the Drive scope), refresh ahead of expiry and after a 401 (once), `invalid_grant` signs out with "Sign in again", logout revokes (best effort). `open_browser` uses `xdg-open` with the AppImage's library variables removed.
+- `drive/google.rs`: `DriveClient` over Drive v3: about, list (paged, trash excluded, query escaped), get, create folder, multipart create, media update, rename, move, trash (never delete), ranged download (416 at the end → empty), start page token, paged change feed. Up to 5 attempts with exponential backoff on 429, 5xx, rate-limit 403s and network errors; other errors surface Google's message.
+- `drive/scaffold.rs`: `Emulation/{roms,saves,states,bios,.romshelf}` plus `roms/<system>` and `bios/<system>` under any parent. Lookup is parent id + name (folders only), one listing per parent, idempotent; `.romshelf/settings.json` (schema 1) written or updated in place; a newer schema stops setup with "Please update Romshelf" and is left untouched.
+- `settings.rs`: local `~/.config/romshelf/settings.json` (account, Drive location, folder ids), atomic writes, newer schema refused.
+- `tokens.rs`: `KeyringTokenStore` (Secret Service on Linux) behind `FallbackTokenStore`, which falls back silently to the 0600 `FileTokenStore`.
+- `connection.rs`: what the CLI and UI share: status, set client (a new client id signs out), login (records the account; a different account forgets the old folder), logout (keeps the folder), folder listing, setup.
+- CLI: `auth set-client --file <json>` or `--client-id` (secret prompted), `auth login` (prints the address if no browser opens), `auth logout`, `auth status` (exit 0 when signed in; it also counts the files in each `roms/<system>/` so the scope check can be done before stage 2).
+- UI: first run per guide §6: welcome, sign in (waiting, cancel, "Can't see a browser?", Desktop Mode steps, set-client instructions when no client is stored), folder browser (A enters, B goes up, path in mono, note when an `Emulation` folder already exists), progress, done with the tree. The library's empty state shows the chosen folder.
+- `ROMSHELF_FAKE=1` starts signed in on a fake Drive; add `ROMSHELF_FAKE_FIRST_RUN=1` to walk the first run against it. In a plain browser, `?first-run` previews it.
+- `docs/google-setup.md`: Cloud project, Drive API, consent screen, **In production**, Desktop client, `set-client` over SSH.
+
+### Tests
+
+90 Rust tests, 34 front-end tests. New: PKCE RFC 7636 vector and generated verifiers; consent URL; client JSON (desktop, web rejected, malformed); loopback right state, wrong state, refused consent, timeout, cancel; expired token refreshes exactly once then retries; 401 refreshes once and retries, a second 401 is not refreshed; revoked refresh token signs out; 429 then 200; five 500s fail with the last error and no sixth request; network errors and quota 403s retried, permission 403s not; 404 → not found; paging for list and changes; query escaping; multipart upload; media update; Range downloads; never `DELETE`; full login against the loopback; login without Drive scope, without a client, without a browser; logout online and offline; scaffold on empty, twice, partial, same names elsewhere, a file named like a folder, under a chosen folder, progress; settings round-trip, update in place, newer schema refused and untouched, damaged; local settings; keyring fallback; connection first run, folder listing, logout keeps folder, account switch, client switch; CLI status/login/set-client/logout; fake-mode state; first-run screens (each step, waiting, no browser, errors, set-client, folder navigation and B, create, failure, returning account).
+
+### Choices made (not covered by the kit)
+
+- Kept the stage 0 trait names (`list`, `create_file`, `download(offset)`) instead of the stage file's (`list_children`, `upload`, `download_range`); added `about` and `update_content`.
+- `HttpTransport` is a new seam (real `ReqwestTransport`, fake `FakeHttp`); added to CLAUDE.md's table.
+- The client ID and secret live in the token store too (key `google_client`), not in a plain config file.
+- `prompt=consent` on every sign-in so Google always returns a refresh token.
+- Step 3 focuses "Create Emulation folder here" first; folders are one D-pad press up.
+- Sign-in waits 10 minutes before timing out.
+
+### Confirm on the Deck
+
+- **Keyring in Game Mode.** Tokens saved to KWallet while signing in from Desktop Mode may be unreadable in Game Mode, where no wallet service runs, and Romshelf would look signed out there. If so, the fix is to keep tokens in the 0600 file only on SteamOS. That changes a fixed decision, so it needs your OK.
+- Whether KWallet asks to create a wallet or for a password the first time Romshelf saves a token.
+- Whether `xdg-open` can open a browser from Game Mode at all.
+- CI builds the vendored `libdbus` for `keyring` on Ubuntu 22.04.
+
+### Deferred
+
+- Stage file step 7's integration test against a throwaway Google account: needs a real account and client, so it is the on-Deck checks below.
+- Settings screen (account, "Sign out", "Change location…"): stage 9.
+
+### On-Deck checklist
+
+Before these, follow `docs/google-setup.md` to create the client and run `auth set-client`.
+
+- [ ] `auth login` opens a browser on the Deck and completes. Record whether this works from Game Mode or only from Desktop Mode.
+- [ ] The folder tree appears in Google Drive at the chosen location.
+- [ ] Upload a small file to `roms/gba/` through the Drive website from another device, then confirm Romshelf can list it: `auth status` shows `gba 1` under "Files in roms/". This proves the scope decision.
+- [ ] Quit and reopen: still signed in. Check in both Desktop Mode and Game Mode.
+- [ ] Eight days later: still signed in.
+
+Results:
+
+- Browser from Game Mode:
+- Keyring in Game Mode:
+- KWallet prompt:
+
 ## Stage 0: foundations (branch `stage-00-foundations`)
 
 Status: **done; on-Deck checks passed 2026-10-18.**

@@ -1,5 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
-import { appInfo, library, quit, type AppInfo, type LibraryEntry } from "./api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  appInfo,
+  connectionStatus,
+  library,
+  quit,
+  type AppInfo,
+  type ConnectionStatus,
+  type LibraryEntry,
+} from "./api";
+import { FirstRun, type BackAction } from "./FirstRun";
 import { focusables, moveFocus, type Direction } from "./focus";
 import { Footer, type Hint } from "./Footer";
 import { GamepadSpike } from "./GamepadSpike";
@@ -7,25 +16,51 @@ import { Home } from "./Home";
 import type { Button } from "./input";
 import { useInput } from "./useInput";
 
-type Screen = "home" | "spike";
+type Screen = "loading" | "first-run" | "home" | "spike";
 
 const HOLD_TO_LEAVE_MS = 1000;
 
 export function App() {
-  const [screen, setScreen] = useState<Screen>("home");
+  const [screen, setScreen] = useState<Screen>("loading");
   const [info, setInfo] = useState<AppInfo | null>(null);
+  const [status, setStatus] = useState<ConnectionStatus | null>(null);
   const [entries, setEntries] = useState<LibraryEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [focusHint, setFocusHint] = useState<string | null>(null);
+  const [back, setBackState] = useState<BackAction | null>(null);
+  const backRef = useRef<BackAction | null>(null);
+
+  const setBack = useCallback((b: BackAction | null) => {
+    backRef.current = b;
+    setBackState(b);
+  }, []);
+
+  const openLibrary = useCallback(() => {
+    Promise.all([connectionStatus(), library()])
+      .then(([s, l]) => {
+        setStatus(s);
+        setEntries(l);
+        setScreen("home");
+      })
+      .catch((e) => {
+        setError(`Couldn't read the library: ${String(e)}. Restart Romshelf.`);
+        setScreen("home");
+      });
+  }, []);
 
   useEffect(() => {
-    Promise.all([appInfo(), library()])
-      .then(([i, l]) => {
+    Promise.all([appInfo(), connectionStatus()])
+      .then(([i, s]) => {
         setInfo(i);
-        setEntries(l);
+        setStatus(s);
+        if (s.ready) openLibrary();
+        else setScreen("first-run");
       })
-      .catch((e) => setError(`Couldn't read the library: ${String(e)}. Restart Romshelf.`));
-  }, []);
+      .catch((e) => {
+        setError(`Couldn't read Romshelf's settings: ${String(e)}. Restart Romshelf.`);
+        setScreen("home");
+      });
+  }, [openLibrary]);
 
   // Read the hint from whatever holds focus: after pad moves, and on touch or mouse focus.
   const syncHint = useCallback(() => {
@@ -41,8 +76,10 @@ export function App() {
       if (b === "up" || b === "down" || b === "left" || b === "right") {
         moveFocus(b as Direction);
         syncHint();
-      } else if (b === "a" && screen === "home") {
+      } else if (b === "a" && screen !== "spike") {
         (document.activeElement as HTMLElement | null)?.click();
+      } else if (b === "b" && screen === "first-run") {
+        backRef.current?.run();
       } else if (b === "b" && screen === "spike" && from === "keyboard") {
         // Escape on a keyboard leaves at once; a pad's B must be held.
         setScreen("home");
@@ -76,22 +113,25 @@ export function App() {
       ? [{ glyph: "B", label: "Hold to go back" }]
       : [
           ...(focusHint ? [{ glyph: "A", label: focusHint }] : []),
+          ...(screen === "first-run" && back ? [{ glyph: "B", label: back.label }] : []),
           { glyph: "✥", label: "Move" },
         ];
 
   return (
     <div className="frame">
-      {screen === "home" ? (
+      {screen === "loading" && <main className="content" />}
+      {screen === "first-run" && status && <FirstRun status={status} onDone={openLibrary} setBack={setBack} />}
+      {screen === "home" && (
         <Home
           info={info}
           entries={entries}
           error={error}
+          driveFolder={status?.drive_folder ?? null}
           onOpenSpike={() => setScreen("spike")}
           onQuit={() => void quit()}
         />
-      ) : (
-        <GamepadSpike input={input} holdingB={holdingB} />
       )}
+      {screen === "spike" && <GamepadSpike input={input} holdingB={holdingB} />}
       <Footer hints={hints} />
     </div>
   );

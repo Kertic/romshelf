@@ -8,3 +8,4 @@ license.workspace = true
 romshelf-core = { path = "../romshelf-core" }
 serde_json.workspace = true
 tempfile.workspace = true
+url.workspace = true
