@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AppInfo, LibraryEntry, SyncStatus } from "./api";
+import type { AppInfo, LibraryEntry, Progress, StorageStatus, SyncStatus } from "./api";
 import { counts, inTab, syncLine, TABS } from "./library";
 
 function initials(name: string): string {
@@ -11,11 +11,15 @@ function initials(name: string): string {
     .join("");
 }
 
-export function tileStatus(e: LibraryEntry): { text: string; warn: boolean } {
+export function tileStatus(e: LibraryEntry, progress?: Progress): { text: string; warn: boolean } {
   if (!e.rom.recognized) return { text: "Unrecognized file", warn: true };
-  if (e.emulator && !e.emulator_installed) return { text: `Needs ${e.emulator}`, warn: true };
   const loc = e.rom.location;
-  if (loc.state === "downloading") return { text: `Downloading ${loc.percent}%`, warn: false };
+  // A download in progress says so even when the emulator isn't set up yet.
+  if (loc.state === "downloading") {
+    const pct = progress && progress.total > 0 ? Math.floor((progress.bytes * 100) / progress.total) : loc.percent;
+    return { text: `Downloading ${pct}%`, warn: false };
+  }
+  if (e.emulator && !e.emulator_installed) return { text: `Needs ${e.emulator}`, warn: true };
   if (loc.state === "on_deck") return { text: e.in_steam ? "On Deck · In Steam" : "On Deck", warn: false };
   return { text: "In Drive only", warn: false };
 }
@@ -43,6 +47,11 @@ interface Props {
   onTab?: (tab: string) => void;
   sync?: SyncStatus | null;
   onSync?: () => void;
+  /** Live download progress by rom-id. */
+  progress?: Record<string, Progress>;
+  storage?: StorageStatus | null;
+  /** A on a tile: open its actions. */
+  onOpen?: (romId: string) => void;
   onOpenSpike: () => void;
   onQuit: () => void;
 }
@@ -58,6 +67,9 @@ export function Home({
   onTab,
   sync = null,
   onSync,
+  progress = {},
+  storage = null,
+  onOpen,
   onOpenSpike,
   onQuit,
 }: Props) {
@@ -124,6 +136,12 @@ export function Home({
 
         {error && <p className="error">{error}</p>}
         {syncProblem && <p className="error">{syncProblem}</p>}
+        {storage && !storage.available && (
+          <p className="error" role="alert">
+            The storage at {storage.root} isn&rsquo;t available, so downloaded games can&rsquo;t be played. Insert
+            the SD card that holds your ROMs.
+          </p>
+        )}
 
         {entries && entries.length === 0 && (
           <div className="empty">
@@ -149,9 +167,18 @@ export function Home({
         {roms.length > 0 && (
           <div className="grid">
             {roms.map((e) => {
-              const status = tileStatus(e);
+              const status = tileStatus(e, progress[e.rom.id]);
               return (
-                <button key={e.rom.id} className="tile" data-focusable data-hint="Select" type="button">
+                <button
+                  key={e.rom.id}
+                  className="tile"
+                  data-focusable
+                  data-hint="Open"
+                  data-hint-x={e.rom.location.state === "drive_only" ? "Download" : undefined}
+                  data-rom-id={e.rom.id}
+                  type="button"
+                  onClick={() => onOpen?.(e.rom.id)}
+                >
                   <span className="cover" style={{ background: e.system_colour }}>
                     <span className="cover-system mono">{e.system_label}</span>
                     <span className="cover-initials">{initials(e.rom.display_name)}</span>

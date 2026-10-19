@@ -3,6 +3,7 @@
 mod auth_cli;
 pub mod cli;
 mod gamepad;
+mod library_cli;
 mod state;
 mod update_cli;
 
@@ -14,15 +15,24 @@ use romshelf_core::connection::{Connection, Folder, Status};
 use romshelf_core::db::Database;
 use romshelf_core::drive::scaffold;
 use romshelf_core::library::{self, LibraryEntry};
+use romshelf_core::model::RomId;
 use romshelf_core::paths::Paths;
+use romshelf_core::storage::{self, DiskSpace, FsDiskSpace};
+use romshelf_core::transfer::{self, Downloader};
 use romshelf_core::update::{self, Outcome};
 use romshelf_core::Error;
 use romshelf_testkit::connection::{script_login, simulate_browser};
 use serde::Serialize;
 use state::{AppState, SyncStatus};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+
+/// A dropped connection is retried after 2 s, doubling to 30 s, 12 times in all (about
+/// four minutes), resuming from what was already downloaded.
+const DOWNLOAD_RETRY: Duration = Duration::from_secs(2);
+const DOWNLOAD_ATTEMPTS: u32 = 12;
 
 /// How long the interface waits for the browser sign-in.
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
@@ -33,7 +43,7 @@ pub fn run() -> i32 {
     match cli.command {
         None => run_interface(),
         Some(Command::Auth(cmd)) => {
-            let conn = match Paths::from_env().and_then(|p| Connection::real(&p)) {
+            let conn = match Paths::for_app().and_then(|p| Connection::real(&p)) {
                 Ok(c) => c,
                 Err(e) => {
                     eprintln!("Couldn't open Romshelf's settings: {e}");
@@ -49,7 +59,7 @@ pub fn run() -> i32 {
             )
         }
         Some(Command::Update(args)) => {
-            let paths = match Paths::from_env() {
+            let paths = match Paths::for_app() {
                 Ok(p) => p,
                 Err(e) => {
                     eprintln!("Couldn't find Romshelf's folders: {e}");
@@ -73,7 +83,7 @@ pub fn run() -> i32 {
             )
         }
         Some(Command::Sync) => {
-            let result = Paths::from_env().and_then(|paths| {
+            let result = Paths::for_app().and_then(|paths| {
                 let conn = Connection::real(&paths)?;
                 let db = Database::open(&paths.db_file())?;
                 conn.sync(&db, &paths)
@@ -83,6 +93,64 @@ pub fn run() -> i32 {
                     println!("{}", report.summary());
                     0
                 }
+                Err(e) => {
+                    eprintln!("{}", UiError::from(e).message);
+                    1
+                }
+            }
+        }
+        Some(Command::Download { id }) => {
+            let setup = Paths::for_app().and_then(|paths| {
+                let conn = Connection::real(&paths)?;
+                let db = Database::open(&paths.db_file())?;
+                Ok((paths, conn, db))
+            });
+            let (paths, conn, db) = match setup {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("{}", UiError::from(e).message);
+                    return 1;
+                }
+            };
+            let cancel = AtomicBool::new(false);
+            let dl = Downloader {
+                drive: conn.drive.as_ref(),
+                paths: &paths,
+                space: &FsDiskSpace,
+                cancel: &cancel,
+                retry_delay: DOWNLOAD_RETRY,
+                max_attempts: DOWNLOAD_ATTEMPTS,
+            };
+            library_cli::download(
+                &Mutex::new(db),
+                &dl,
+                &id,
+                &mut std::io::stdout(),
+                &mut std::io::stderr(),
+            )
+        }
+        Some(Command::Remove { id }) => {
+            let setup =
+                Paths::for_app().and_then(|paths| Ok((Database::open(&paths.db_file())?, paths)));
+            match setup {
+                Ok((db, paths)) => library_cli::remove(&db, &paths, &id, &mut std::io::stdout()),
+                Err(e) => {
+                    eprintln!("{}", UiError::from(e).message);
+                    1
+                }
+            }
+        }
+        Some(Command::Storage { set }) => {
+            let setup =
+                Paths::for_app().and_then(|paths| Ok((Database::open(&paths.db_file())?, paths)));
+            match setup {
+                Ok((db, paths)) => library_cli::storage(
+                    &db,
+                    &paths,
+                    &FsDiskSpace,
+                    set.as_deref(),
+                    &mut std::io::stdout(),
+                ),
                 Err(e) => {
                     eprintln!("{}", UiError::from(e).message);
                     1
@@ -349,6 +417,121 @@ fn start_update_check(app: tauri::AppHandle) {
     });
 }
 
+/// Runs queued downloads on a background thread, if one isn't already. Emits `transfer`
+/// events, and `library-changed` when a download ends.
+fn start_downloads(app: &tauri::AppHandle) {
+    let state = app.state::<AppState>();
+    if state.worker_busy.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let state = app.state::<AppState>();
+        loop {
+            let dl = Downloader {
+                drive: state.connection.drive.as_ref(),
+                paths: &state.paths,
+                space: &FsDiskSpace,
+                cancel: &state.cancel,
+                retry_delay: DOWNLOAD_RETRY,
+                max_attempts: DOWNLOAD_ATTEMPTS,
+            };
+            let _ = transfer::run_pending(&state.db, &dl, &|event| {
+                let finished = matches!(event, transfer::Event::Finished { .. });
+                let _ = app.emit("transfer", event);
+                if finished {
+                    let _ = app.emit("library-changed", ());
+                }
+            });
+            state.worker_busy.store(false, Ordering::SeqCst);
+            // Something queued between the last check and clearing the flag gets a new run.
+            let more = state
+                .db
+                .lock()
+                .map(|db| {
+                    transfer::pending(&db)
+                        .map(|p| !p.is_empty())
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
+            if !more || state.worker_busy.swap(true, Ordering::SeqCst) {
+                return;
+            }
+        }
+    });
+}
+
+fn parse_rom_id(id: &str) -> Result<RomId, UiError> {
+    RomId::parse(id).ok_or_else(|| UiError {
+        kind: "error",
+        message: format!("Romshelf doesn't know the game {id}. Sync, then try again."),
+    })
+}
+
+/// Queues a download (or "Download again") and starts the worker.
+#[tauri::command]
+fn download(app: tauri::AppHandle, rom_id: String) -> Result<(), UiError> {
+    let id = parse_rom_id(&rom_id)?;
+    {
+        let state = app.state::<AppState>();
+        let db = state.db.lock().map_err(internal)?;
+        transfer::enqueue_download(&db, &id)?;
+    }
+    let _ = app.emit("library-changed", ());
+    start_downloads(&app);
+    Ok(())
+}
+
+/// Stops a running download, or takes a waiting one off the queue.
+#[tauri::command]
+fn cancel_download(app: tauri::AppHandle, rom_id: String) -> Result<(), UiError> {
+    let id = parse_rom_id(&rom_id)?;
+    let state = app.state::<AppState>();
+    let db = state.db.lock().map_err(internal)?;
+    match transfer::state_of(&db, &id)? {
+        Some(transfer::TransferState::Running) => state.cancel.store(true, Ordering::SeqCst),
+        _ => {
+            transfer::dequeue(&db, &state.paths, &id)?;
+            let _ = app.emit("library-changed", ());
+        }
+    }
+    Ok(())
+}
+
+/// Removes the downloaded copy from this Deck. Drive is never touched.
+#[tauri::command]
+fn remove_from_deck(app: tauri::AppHandle, rom_id: String) -> Result<(), UiError> {
+    let id = parse_rom_id(&rom_id)?;
+    {
+        let state = app.state::<AppState>();
+        let db = state.db.lock().map_err(internal)?;
+        transfer::remove_from_deck(&db, &state.paths, &id)?;
+    }
+    let _ = app.emit("library-changed", ());
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct StorageStatus {
+    /// The folder holding `roms/`.
+    root: String,
+    available: bool,
+    free: Option<u64>,
+}
+
+#[tauri::command]
+fn storage_status(state: tauri::State<'_, AppState>) -> StorageStatus {
+    let root = state.paths.storage_root();
+    let available = storage::is_available(&state.paths);
+    StorageStatus {
+        free: available
+            .then(|| FsDiskSpace.available(&root).ok())
+            .flatten(),
+        root: root.display().to_string(),
+        available,
+    }
+}
+
 #[tauri::command]
 fn quit(app: tauri::AppHandle) {
     app.exit(0);
@@ -397,6 +580,10 @@ fn run_interface() -> i32 {
             update_ready,
             sync_status,
             sync_now,
+            download,
+            cancel_download,
+            remove_from_deck,
+            storage_status,
             quit
         ])
         .setup(move |app| {
@@ -408,6 +595,18 @@ fn run_interface() -> i32 {
                 .build()?;
             gamepad::start(app.handle().clone());
             start_update_check(app.handle().clone());
+            // Correct ROM locations against the disk, then resume any downloads.
+            {
+                let state = app.state::<AppState>();
+                let result = match state.db.lock() {
+                    Ok(db) => storage::reconcile(&db, &state.paths).map(|_| ()),
+                    Err(_) => Ok(()),
+                };
+                if let Err(e) = result {
+                    eprintln!("Couldn't check downloaded ROMs: {e}");
+                }
+            }
+            start_downloads(app.handle());
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.set_focus();
             }

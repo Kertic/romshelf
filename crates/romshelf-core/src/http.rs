@@ -1,6 +1,7 @@
 //! HTTP seam under the Google client, so its retry and token logic can be tested with a fake.
 
 use crate::{Error, Result};
+use std::io::{Read, Write};
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,6 +69,20 @@ pub trait HttpTransport: Send + Sync {
     /// Sends one request. A non-2xx status is a response, not an error; only failing to
     /// reach the server is an error (`Error::Network`).
     fn send(&self, req: &HttpRequest) -> Result<HttpResponse>;
+
+    /// Like `send`, but a 2xx body is written to `sink` as it arrives and not returned.
+    /// An error body is returned as usual. A sink error made by `cancelled_write` means cancelled.
+    fn send_to(&self, req: &HttpRequest, sink: &mut dyn Write) -> Result<HttpResponse> {
+        let resp = self.send(req)?;
+        if !resp.ok() {
+            return Ok(resp);
+        }
+        sink.write_all(&resp.body).map_err(sink_error)?;
+        Ok(HttpResponse {
+            status: resp.status,
+            body: Vec::new(),
+        })
+    }
 }
 
 pub struct ReqwestTransport {
@@ -87,8 +102,36 @@ impl ReqwestTransport {
     }
 }
 
-impl HttpTransport for ReqwestTransport {
-    fn send(&self, req: &HttpRequest) -> Result<HttpResponse> {
+/// What a download sink returns when the user cancels. (Not `ErrorKind::Interrupted`:
+/// `write_all` retries those forever.)
+#[derive(Debug)]
+pub struct CancelledWrite;
+
+impl std::fmt::Display for CancelledWrite {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("cancelled")
+    }
+}
+
+impl std::error::Error for CancelledWrite {}
+
+pub fn cancelled_write() -> std::io::Error {
+    std::io::Error::other(CancelledWrite)
+}
+
+/// A failed write to a download's sink: cancelled, or a disk error.
+pub fn sink_error(e: std::io::Error) -> Error {
+    if e.get_ref()
+        .is_some_and(|inner| inner.is::<CancelledWrite>())
+    {
+        Error::Cancelled
+    } else {
+        Error::Io(e)
+    }
+}
+
+impl ReqwestTransport {
+    fn start(&self, req: &HttpRequest) -> Result<reqwest::blocking::Response> {
         let method = reqwest::Method::from_bytes(req.method.as_bytes())
             .map_err(|e| Error::Invalid(e.to_string()))?;
         let mut builder = self.client.request(method, &req.url);
@@ -98,12 +141,44 @@ impl HttpTransport for ReqwestTransport {
         if !req.body.is_empty() || matches!(req.method, "POST" | "PATCH" | "PUT") {
             builder = builder.body(req.body.clone());
         }
-        let resp = builder.send().map_err(|e| Error::Network(e.to_string()))?;
+        builder.send().map_err(|e| Error::Network(e.to_string()))
+    }
+}
+
+impl HttpTransport for ReqwestTransport {
+    fn send(&self, req: &HttpRequest) -> Result<HttpResponse> {
+        let resp = self.start(req)?;
         let status = resp.status().as_u16();
         let body = resp
             .bytes()
             .map_err(|e| Error::Network(e.to_string()))?
             .to_vec();
         Ok(HttpResponse { status, body })
+    }
+
+    fn send_to(&self, req: &HttpRequest, sink: &mut dyn Write) -> Result<HttpResponse> {
+        let mut resp = self.start(req)?;
+        let status = resp.status().as_u16();
+        if !(200..300).contains(&status) {
+            let body = resp
+                .bytes()
+                .map_err(|e| Error::Network(e.to_string()))?
+                .to_vec();
+            return Ok(HttpResponse { status, body });
+        }
+        let mut buf = vec![0u8; 256 * 1024];
+        loop {
+            let n = resp
+                .read(&mut buf)
+                .map_err(|e| Error::Network(e.to_string()))?;
+            if n == 0 {
+                break;
+            }
+            sink.write_all(&buf[..n]).map_err(sink_error)?;
+        }
+        Ok(HttpResponse {
+            status,
+            body: Vec::new(),
+        })
     }
 }

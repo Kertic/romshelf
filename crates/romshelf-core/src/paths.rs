@@ -4,6 +4,9 @@ use crate::model::System;
 use crate::{Error, Result};
 use std::path::{Component, Path, PathBuf};
 
+/// The default storage root's folder name in the home directory.
+pub const DEFAULT_STORAGE_DIR: &str = "Romshelf";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Paths {
     /// `~/.local/share/romshelf`: index database and logs.
@@ -18,6 +21,7 @@ pub struct Paths {
 
 impl Paths {
     /// Build from the environment, honouring XDG variables and `ROMSHELF_ROM_ROOT`.
+    /// ROMs default to `~/Romshelf/roms`, away from other tools' `~/Emulation`.
     pub fn from_env() -> Result<Paths> {
         let home = std::env::var_os("HOME")
             .or_else(|| std::env::var_os("USERPROFILE"))
@@ -33,7 +37,7 @@ impl Paths {
         let config_dir = xdg("XDG_CONFIG_HOME", ".config").join("romshelf");
         let rom_root = std::env::var_os("ROMSHELF_ROM_ROOT")
             .map(PathBuf::from)
-            .unwrap_or_else(|| home.join("Emulation/roms"));
+            .unwrap_or_else(|| home.join(DEFAULT_STORAGE_DIR).join("roms"));
         let steam_root = home.join(".steam/steam");
         Ok(Paths {
             data_dir,
@@ -41,6 +45,34 @@ impl Paths {
             rom_root,
             steam_root,
         })
+    }
+
+    /// Paths for the app and CLI: the environment, then the storage root chosen with
+    /// `romshelf storage --set` unless `ROMSHELF_ROM_ROOT` overrides it.
+    pub fn for_app() -> Result<Paths> {
+        let paths = Paths::from_env()?;
+        if std::env::var_os("ROMSHELF_ROM_ROOT").is_some() {
+            return Ok(paths);
+        }
+        let settings = crate::settings::LocalSettings::load(&paths.settings_file())?;
+        Ok(match settings.storage_root {
+            Some(root) => paths.with_storage_root(&root),
+            None => paths,
+        })
+    }
+
+    /// The same paths with ROMs under `<root>/roms`.
+    pub fn with_storage_root(mut self, root: &Path) -> Paths {
+        self.rom_root = root.join("roms");
+        self
+    }
+
+    /// The folder holding `roms/`: internal storage or a folder on an SD card.
+    pub fn storage_root(&self) -> PathBuf {
+        self.rom_root
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| self.rom_root.clone())
     }
 
     /// Every location under one root. Used by tests and fake mode.

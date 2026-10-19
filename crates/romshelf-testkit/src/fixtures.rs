@@ -61,14 +61,16 @@ pub fn roms() -> Vec<Rom> {
         .enumerate()
         .map(|(i, f)| {
             let drive_file_id = format!("fixture-{i}");
+            let size = 1024 * (i as u64 + 1);
             Rom {
                 id: RomId::derive(f.system, &drive_file_id),
                 drive_file_id,
                 system: f.system,
                 file_name: f.file.into(),
                 display_name: f.name.into(),
-                size: 1024 * (i as u64 + 1),
-                checksum: None,
+                size,
+                // What the fake Drive reports for the fixture's zero-filled file.
+                checksum: Some(crate::drive::md5_hex(&vec![0; size as usize])),
                 location: f.location,
                 recognized: true,
             }

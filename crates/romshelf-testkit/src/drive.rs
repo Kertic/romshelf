@@ -3,6 +3,14 @@ use romshelf_core::{Error, Result};
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
+pub(crate) fn md5_hex(bytes: &[u8]) -> String {
+    use md5::{Digest, Md5};
+    Md5::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 /// The account the fake Drive reports as signed in.
 pub const FAKE_ACCOUNT: &str = "player@example.com";
 
@@ -17,6 +25,10 @@ struct State {
     /// Change log; a page token is an index into it.
     log: Vec<String>,
     next_id: u64,
+    /// Offsets asked for by `download_to`, per file.
+    offsets: BTreeMap<String, Vec<u64>>,
+    /// The next `download_to` stops with a network error after this many bytes.
+    fail_after: Option<u64>,
 }
 
 impl Default for FakeDrive {
@@ -27,6 +39,8 @@ impl Default for FakeDrive {
                 content: BTreeMap::new(),
                 log: Vec::new(),
                 next_id: 1,
+                offsets: BTreeMap::new(),
+                fail_after: None,
             }),
         }
     }
@@ -51,7 +65,9 @@ impl State {
             mime_type: mime.into(),
             parents: vec![parent.into()],
             size: bytes.map_or(0, |b| b.len() as u64),
-            md5: None,
+            md5: bytes
+                .filter(|_| !mime.starts_with("application/vnd.google-apps."))
+                .map(md5_hex),
             trashed: false,
         };
         if let Some(b) = bytes {
@@ -110,6 +126,31 @@ impl FakeDrive {
             .insert(name, parent, mime, Some(b""))
     }
 
+    /// Makes Drive report a different checksum for a file (checksum-mismatch tests).
+    pub fn set_md5(&self, id: &str, md5: &str) {
+        let _ = self
+            .state
+            .lock()
+            .unwrap()
+            .update(id, |f| f.md5 = Some(md5.into()));
+    }
+
+    /// The next `download_to` sends this many bytes, then fails like a dropped connection.
+    pub fn fail_next_download_after(&self, bytes: u64) {
+        self.state.lock().unwrap().fail_after = Some(bytes);
+    }
+
+    /// The offsets `download_to` was called with for a file, in order.
+    pub fn download_offsets(&self, id: &str) -> Vec<u64> {
+        self.state
+            .lock()
+            .unwrap()
+            .offsets
+            .get(id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
     /// Restores a file from Drive's trash.
     pub fn untrash(&self, id: &str) -> Result<()> {
         self.state
@@ -156,7 +197,11 @@ impl DriveClient for FakeDrive {
             return Err(Error::NotFound(format!("file {id}")));
         }
         s.content.insert(id.into(), bytes.to_vec());
-        s.update(id, |f| f.size = bytes.len() as u64)
+        let md5 = md5_hex(bytes);
+        s.update(id, |f| {
+            f.size = bytes.len() as u64;
+            f.md5 = Some(md5);
+        })
     }
 
     fn list(&self, parent: &str) -> Result<Vec<DriveFile>> {
@@ -208,6 +253,31 @@ impl DriveClient for FakeDrive {
             .get(id)
             .ok_or_else(|| Error::NotFound(format!("content {id}")))?;
         Ok(bytes.get(offset as usize..).unwrap_or_default().to_vec())
+    }
+
+    fn download_to(&self, id: &str, offset: u64, out: &mut dyn std::io::Write) -> Result<u64> {
+        let (bytes, fail_after) = {
+            let mut s = self.state.lock().unwrap();
+            s.offsets.entry(id.into()).or_default().push(offset);
+            let bytes = s
+                .content
+                .get(id)
+                .ok_or_else(|| Error::NotFound(format!("content {id}")))?
+                .get(offset as usize..)
+                .unwrap_or_default()
+                .to_vec();
+            (bytes, s.fail_after.take())
+        };
+        // Small chunks, like a network stream, so progress and cancelling can be seen.
+        let limit = fail_after.map_or(bytes.len(), |n| (n as usize).min(bytes.len()));
+        for chunk in bytes[..limit].chunks(64 * 1024) {
+            out.write_all(chunk)
+                .map_err(romshelf_core::http::sink_error)?;
+        }
+        if fail_after.is_some() {
+            return Err(Error::Network("connection reset by peer".into()));
+        }
+        Ok(limit as u64)
     }
 
     fn start_page_token(&self) -> Result<String> {

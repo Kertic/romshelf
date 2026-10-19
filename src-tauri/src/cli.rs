@@ -28,6 +28,22 @@ pub enum Command {
     Steam(SteamCommand),
     /// Install a newer Romshelf now, roll back, or set the GitHub token for updates.
     Update(UpdateArgs),
+    /// Download a ROM to this Deck.
+    Download {
+        /// ROM id, for example `gba-0a1b2c3d`.
+        id: String,
+    },
+    /// Remove a downloaded ROM from this Deck. Drive is never touched.
+    Remove {
+        /// ROM id, for example `gba-0a1b2c3d`.
+        id: String,
+    },
+    /// Show where ROMs are kept, or move them to another folder (an SD card).
+    Storage {
+        /// Folder to keep ROMs in; downloaded ROMs are moved there.
+        #[arg(long)]
+        set: Option<String>,
+    },
 }
 
 #[derive(Debug, Args, PartialEq, Eq)]
@@ -83,6 +99,9 @@ impl Command {
             Command::Auth(_) => "auth",
             Command::Steam(_) => "steam",
             Command::Update(_) => "update",
+            Command::Download { .. } => "download",
+            Command::Remove { .. } => "remove",
+            Command::Storage { .. } => "storage",
         }
     }
 }
@@ -169,6 +188,26 @@ mod tests {
             Some(Command::Steam(SteamCommand::List))
         );
         assert_eq!(
+            parse(&["download", "gba-00000001"]).unwrap().command,
+            Some(Command::Download {
+                id: "gba-00000001".into()
+            })
+        );
+        assert_eq!(
+            parse(&["remove", "gba-00000001"]).unwrap().command,
+            Some(Command::Remove {
+                id: "gba-00000001".into()
+            })
+        );
+        assert_eq!(
+            parse(&["storage", "--set", "/run/media/deck/SD/Romshelf"])
+                .unwrap()
+                .command,
+            Some(Command::Storage {
+                set: Some("/run/media/deck/SD/Romshelf".into())
+            })
+        );
+        assert_eq!(
             parse(&["update"]).unwrap().command,
             Some(Command::Update(UpdateArgs::default()))
         );
@@ -195,5 +234,10 @@ mod tests {
         assert!(parse(&["steam", "nope"]).is_err());
         assert!(parse(&["doctor", "--bogus"]).is_err());
         assert!(parse(&["update", "--rollback", "--set-token"]).is_err());
+        assert!(parse(&["download"]).is_err());
+        assert!(parse(&["remove"]).is_err());
+        // There is no way to delete from Drive.
+        assert!(parse(&["delete", "gba-00000001"]).is_err());
+        assert!(parse(&["remove", "gba-00000001", "--scope", "drive"]).is_err());
     }
 }

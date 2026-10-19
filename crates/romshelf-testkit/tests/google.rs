@@ -543,3 +543,22 @@ fn an_expired_change_token_is_reported_as_invalid() {
     ));
     assert_eq!(r.http.requests().len(), 1, "not retried");
 }
+
+#[test]
+fn streamed_download_resumes_with_a_range_and_writes_the_body() {
+    let r = signed_in();
+    r.http.push(503, "{}");
+    r.http.push(206, "tail bytes");
+    let mut out = Vec::new();
+    let n = r.drive.download_to("f", 10, &mut out).unwrap();
+    assert_eq!(n, 10);
+    assert_eq!(out, b"tail bytes");
+    let reqs = r.http.requests();
+    assert_eq!(reqs.len(), 2, "a failure before any byte is retried");
+    assert_eq!(reqs[1].header_value("Range"), Some("bytes=10-"));
+    assert_eq!(query(&reqs[1])["alt"], "media");
+
+    r.http.push(416, "");
+    let mut out = Vec::new();
+    assert_eq!(r.drive.download_to("f", 99, &mut out).unwrap(), 0);
+}

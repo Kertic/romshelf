@@ -183,6 +183,48 @@ export async function onLibraryChanged(handler: () => void): Promise<UnlistenFn>
   return listen("library-changed", () => handler());
 }
 
+/** A download's live progress. */
+export interface Progress {
+  bytes: number;
+  total: number;
+  /** Bytes per second. */
+  rate: number;
+}
+
+export type TransferEvent =
+  | ({ kind: "progress"; rom_id: string } & Progress)
+  | { kind: "finished"; rom_id: string; ok: boolean; message: string | null };
+
+export interface StorageStatus {
+  root: string;
+  available: boolean;
+  free: number | null;
+}
+
+/** Queues a download (or "Download again"). */
+export async function download(romId: string): Promise<void> {
+  if (inTauri()) await invoke("download", { romId });
+}
+
+export async function cancelDownload(romId: string): Promise<void> {
+  if (inTauri()) await invoke("cancel_download", { romId });
+}
+
+/** Removes the downloaded copy from this Deck. Drive is never touched. */
+export async function removeFromDeck(romId: string): Promise<void> {
+  if (inTauri()) await invoke("remove_from_deck", { romId });
+}
+
+export async function storageStatus(): Promise<StorageStatus> {
+  if (!inTauri()) return { root: "~/Romshelf", available: true, free: 40 * 1024 ** 3 };
+  return invoke<StorageStatus>("storage_status");
+}
+
+export async function onTransfer(handler: (e: TransferEvent) => void): Promise<UnlistenFn> {
+  if (!inTauri()) return () => {};
+  return listen<TransferEvent>("transfer", (e) => handler(e.payload));
+}
+
 /** A newer Romshelf installed in the background this session; it runs from the next start. */
 export async function updateReady(): Promise<string | null> {
   if (!inTauri()) return null;

@@ -11,7 +11,7 @@ Steam Deck app that manages emulation from one place. Full brief: `docs/kit/00-I
 
 ## Fixed decisions (ask before changing)
 
-1. One binary, `romshelf`. No args → full-screen UI. Subcommands (`launch`, `sync`, `doctor`, `auth`, `steam`, `update`) run headless.
+1. One binary, `romshelf`. No args → full-screen UI. Subcommands (`launch`, `sync`, `doctor`, `auth`, `steam`, `update`, `download`, `remove`, `storage`) run headless.
 2. Tauri 2; all logic in Rust; front end React + Vite + TypeScript, plain CSS with custom-property tokens, no component library.
 3. All logic in `crates/romshelf-core` (no Tauri dependency). `src-tauri` and the CLI are thin layers.
 4. Drive API v3 directly with the user's own desktop client ID, full `drive` scope, loopback + PKCE sign-in in the system browser.
@@ -19,7 +19,7 @@ Steam Deck app that manages emulation from one place. Full brief: `docs/kit/00-I
 6. Emulators as per-user Flatpaks. RetroArch (SNES, GBA, N64) and Dolphin (GameCube) first; PCSX2 later.
 7. Shortcuts via `shortcuts.vdf` + `grid/` artwork; batch changes, one Steam-restart prompt.
 8. AppImage at a fixed path (`~/Applications/romshelf.AppImage`) so shortcut targets never change.
-9. SQLite index and logs in `~/.local/share/romshelf/`, settings in `~/.config/romshelf/`, ROMs under a user-chosen root.
+9. SQLite index and logs in `~/.local/share/romshelf/`, settings in `~/.config/romshelf/`, ROMs under a user-chosen root (`<root>/roms/<system>/`; default `~/Romshelf`, away from EmuDeck's `~/Emulation`; `romshelf storage --set` moves it).
 
 ## Seams
 
@@ -33,6 +33,7 @@ Everything external goes through a trait with a real and a fake implementation. 
 | `ProcessRunner` | `process` | `SystemProcessRunner` | `FakeProcessRunner` |
 | `SteamFiles` | `steam` | `FsSteamFiles` on `~/.steam/steam` | `FakeSteam` (temp copy) |
 | `TokenStore` | `tokens` | `KeyringTokenStore` with silent `FileTokenStore` 0600 fallback (`FallbackTokenStore`) | `MemoryTokenStore` |
+| `DiskSpace` | `storage` | `FsDiskSpace` | `FixedSpace` |
 | `Clock` | `clock` | `SystemClock` | `FakeClock` |
 
 `Paths` (`paths.rs`) holds every filesystem location; nothing else builds paths from `~`.
@@ -51,6 +52,7 @@ Other env flags: `ROMSHELF_WINDOWED=1` (no full screen), `ROMSHELF_FULLSCREEN=1`
 
 ## Rules
 
+- **Romshelf never deletes, moves, renames or rewrites the user's ROM files in Drive.** The user manages Drive; Romshelf reads ROMs from it and only writes folders it created and its own files (`.romshelf/`, and later `saves/` and `states/`). "Delete" in the interface means removing the copy on the Deck. (The owner's decision, 2026-10-19, replacing stage 3's "From Drive" and "From both" scopes.)
 - Tests never touch a real Google Drive, Steam directory or emulator config. Fakes and temp dirs only.
 - Never commit a client ID, secret, token or API key (`romshelf auth set-client` stores them outside the repo).
 - Destructive actions (Drive delete, save overwrite, `shortcuts.vdf` write) take a backup or go to trash first, with a test proving nothing else was touched.

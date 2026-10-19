@@ -62,6 +62,13 @@ pub trait DriveClient: Send + Sync {
     fn trash(&self, id: &str) -> Result<()>;
     /// File bytes from `offset` to the end, for resumable downloads.
     fn download(&self, id: &str, offset: u64) -> Result<Vec<u8>>;
+    /// Writes the file from `offset` to the end into `out` as it arrives; returns the bytes
+    /// written. A failure part-way leaves what was written, so the caller can resume.
+    fn download_to(&self, id: &str, offset: u64, out: &mut dyn std::io::Write) -> Result<u64> {
+        let bytes = self.download(id, offset)?;
+        out.write_all(&bytes).map_err(crate::http::sink_error)?;
+        Ok(bytes.len() as u64)
+    }
     fn start_page_token(&self) -> Result<String>;
     fn changes(&self, token: &str) -> Result<ChangePage>;
 }
