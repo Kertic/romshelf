@@ -456,3 +456,19 @@ fn the_interface_and_a_launch_can_share_the_database() {
     launcher.set_setting("from", "launch").unwrap();
     assert_eq!(ui.setting("from").unwrap().as_deref(), Some("launch"));
 }
+
+#[test]
+fn every_launch_prepares_the_session_folder_again() {
+    let r = Rig::new();
+    let rom = r.ready(System::Gamecube, "Twilight Princess.rvz");
+    let theirs = r
+        .paths
+        .flatpak_app_dir("org.DolphinEmu.dolphin-emu")
+        .join("config/dolphin-emu");
+    std::fs::create_dir_all(&theirs).unwrap();
+    std::fs::write(theirs.join("GCPadNew.ini"), b"[GCPad1]\n").unwrap();
+    // Set up before the copy existed, as on a Deck that set up Dolphin with stage 4.
+    std::fs::remove_dir_all(Dolphin.session_dir(&r.paths)).unwrap();
+    r.launch(id(&rom)).0.unwrap();
+    assert!(Dolphin::config_dir(&r.paths).join("GCPadNew.ini").is_file());
+}

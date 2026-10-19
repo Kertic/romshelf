@@ -284,6 +284,10 @@ pub fn run(
         }
     }
 
+    // Romshelf's session folder is checked before every launch, so an emulator set up by an
+    // earlier version gets anything added since (Dolphin's copied settings).
+    adapter.prepare_session(ctx.paths)?;
+
     // Stage 6 fills these in.
     events(LaunchEvent::Step {
         step: Step::SaveCheck,

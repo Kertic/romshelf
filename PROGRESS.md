@@ -29,15 +29,17 @@ Status: **built; waiting for on-Deck checks.**
 - **`romshelf doctor --id <id>`** lists each step a launch would take, with the exact emulator command, and changes nothing.
 - **Sharing the database:** it now waits up to 5 s for another process's write, so a launch from Steam works while Romshelf is open.
 - **Fake mode:** "games" run for five seconds and exit normally.
+- **Dolphin starts from your settings:** found before testing on the Deck. Romshelf's own Dolphin user folder was empty, so Dolphin would have started with default (keyboard) controls and graphics. EmuDeck's settings map the Deck (`SDL/0/Steam Virtual Gamepad`) and use Vulkan. Now Romshelf copies `Dolphin.ini`, `GFX.ini`, `GCPadNew.ini`, `GCKeyNew.ini` and `Hotkeys.ini` from your Dolphin settings into its own `Config/` the first time, reading yours only. After that its copy is its own, for the stage 7 controls editor to change. Every launch checks the session folder, so the Dolphin set up in stage 4 gets the copy too.
 
 ### Tests
 
-16 launch tests: RetroArch's and Dolphin's exact command lines; exit codes 0 and 3 returned unchanged; a ready game goes straight to the emulator with no window needed; download first; setup first; download then setup then launch; `--id` and `--rom` find the same game; an unknown id named, with nothing started; gone from Drive; no emulator, and an unrecognized file; backup after a failed exit with the save check and controls before the run; the launch lock held during the run and gone after; the launch log; `doctor` writing nothing, starting nothing and calling no Flatpak; two database connections sharing a file. Plus 5 UI tests for the launch window and Play.
+17 launch tests (including that every launch prepares the session folder again), 1 more emulator test (the copied settings, with yours untouched and Romshelf's copy never replaced), and: RetroArch's and Dolphin's exact command lines; exit codes 0 and 3 returned unchanged; a ready game goes straight to the emulator with no window needed; download first; setup first; download then setup then launch; `--id` and `--rom` find the same game; an unknown id named, with nothing started; gone from Drive; no emulator, and an unrecognized file; backup after a failed exit with the save check and controls before the run; the launch lock held during the run and gone after; the launch log; `doctor` writing nothing, starting nothing and calling no Flatpak; two database connections sharing a file. Plus 5 UI tests for the launch window and Play.
 
 ### Choices made
 
 - **One process per launch.** `romshelf launch` doesn't hand the game to an already open Romshelf; both can run at once, sharing the database. That keeps Steam's process tracking simple: the shortcut's own process waits for the game.
 - **The launch window hides while the game runs**, so the emulator has the screen; it shows again only if something fails.
+- **Saves are separate for now.** Games Romshelf starts save to Romshelf's own folders (Dolphin's user folder, RetroArch's `romshelf/saves`), not EmuDeck's on the SD card. So a save made through EmuDeck or ES-DE won't show in a game started from Romshelf, and the other way round. Stage 6 (save backup) decides how saves are kept and shared.
 - **`romshelf doctor` without `--id`** (the whole-setup check) is stage 10's.
 - **Play isn't offered before downloading.** The dialog's first action is **Download to Deck**, or **Set up {emulator}**, until the game can start straight away. A Steam shortcut still does everything in one go.
 

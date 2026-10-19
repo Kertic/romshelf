@@ -7,6 +7,23 @@ use std::path::PathBuf;
 
 pub struct Dolphin;
 
+/// The user's Dolphin settings files copied into Romshelf's user folder the first time:
+/// general and graphics settings, GameCube controllers and keyboards, hotkeys.
+const SEEDED_CONFIG: &[&str] = &[
+    "Dolphin.ini",
+    "GFX.ini",
+    "GCPadNew.ini",
+    "GCKeyNew.ini",
+    "Hotkeys.ini",
+];
+
+impl Dolphin {
+    /// `Config/` inside Romshelf's user folder, where Dolphin reads settings when run with `-u`.
+    pub fn config_dir(paths: &Paths) -> PathBuf {
+        Dolphin.session_dir(paths).join("Config")
+    }
+}
+
 impl EmulatorAdapter for Dolphin {
     fn id(&self) -> &'static str {
         "dolphin"
@@ -30,6 +47,27 @@ impl EmulatorAdapter for Dolphin {
         paths
             .flatpak_app_dir(self.flatpak_id())
             .join("data/romshelf-user")
+    }
+
+    /// Starts Romshelf's user folder from a copy of the user's own Dolphin settings (controls,
+    /// graphics, hotkeys), so games play the way Dolphin is already set up. The user's files are
+    /// only read; a file Romshelf already has is never replaced.
+    fn prepare_session(&self, paths: &Paths) -> Result<()> {
+        let ours = Dolphin::config_dir(paths);
+        std::fs::create_dir_all(&ours)?;
+        let theirs = paths
+            .flatpak_app_dir(self.flatpak_id())
+            .join("config/dolphin-emu");
+        for name in SEEDED_CONFIG {
+            let target = ours.join(name);
+            if target.exists() {
+                continue;
+            }
+            if let Ok(bytes) = std::fs::read(theirs.join(name)) {
+                std::fs::write(target, bytes)?;
+            }
+        }
+        Ok(())
     }
 
     /// `-u` Romshelf's user folder, `-b` no Dolphin window (quits with the game), full screen,
