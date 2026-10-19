@@ -402,3 +402,121 @@ button:focus {
   font-size: 13px;
   color: var(--accent);
 }
+
+/* Library top band: system tabs and the sync line (reference 01-library.html). */
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 12px;
+}
+.key-cap {
+  font-size: 12px;
+  color: var(--text-muted);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-cap);
+  padding: 3px 7px;
+}
+.tab {
+  height: var(--target-min);
+  padding: 0 16px;
+  border: none;
+  border-radius: var(--radius-row);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+}
+.tab.selected {
+  background: var(--text);
+  color: var(--bg);
+  font-weight: 600;
+}
+.sync-status {
+  min-height: var(--target-min);
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--radius-row);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sync-status:focus {
+  outline: 2px solid var(--accent);
+}
+.sync-status:disabled {
+  cursor: default;
+}
+.sync-status.warn {
+  color: var(--warning);
+}
+.sync-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.sync-status.warn .sync-dot {
+  background: var(--warning);
+}
+.sync-dot.busy {
+  animation: sync-pulse 1s ease-in-out infinite alternate;
+}
+@keyframes sync-pulse {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.3;
+  }
+}
+
+.group-label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.unrecognized {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.unrecognized-row {
+  min-height: var(--row-height);
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-row);
+  background: var(--raised);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+.small {
+  margin: 0;
+  font-size: 12px;
+}
+.folder-strip {
+  margin-top: auto;
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-row);
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.folder-strip .mono {
+  color: var(--text);
+}
+.folder-strip + .home-actions {
+  margin-top: 0;
+}

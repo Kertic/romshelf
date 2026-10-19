@@ -3,14 +3,16 @@
 
 use crate::auth::{ClientConfig, GoogleAuth};
 use crate::clock::SystemClock;
+use crate::db::Database;
 use crate::drive::google::GoogleDrive;
 use crate::drive::scaffold;
 use crate::drive::{Account, DriveClient};
 use crate::http::ReqwestTransport;
 use crate::paths::Paths;
 use crate::settings::{DriveFolder, LocalSettings};
+use crate::sync::{self, SyncContext, SyncReport};
 use crate::tokens::{FallbackTokenStore, FileTokenStore, KeyringTokenStore};
-use crate::Result;
+use crate::{Error, Result};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -136,6 +138,22 @@ impl Connection {
             .collect();
         folders.sort_by_key(|f| (f.name.to_lowercase(), f.id.clone()));
         Ok(folders)
+    }
+
+    /// Brings the library index up to date with the chosen Drive folder.
+    pub fn sync(&self, db: &Database, paths: &Paths) -> Result<SyncReport> {
+        let Some(folder) = self.settings()?.drive else {
+            return Err(Error::NotFound(
+                "No Drive folder is chosen yet. Open Romshelf to choose one.".into(),
+            ));
+        };
+        sync::run(&SyncContext {
+            drive: self.drive.as_ref(),
+            db,
+            layout: &folder.layout,
+            paths,
+            clock: &SystemClock,
+        })
     }
 
     /// Files (not folders) in each `roms/<system>/` folder, by system id. Empty before setup.

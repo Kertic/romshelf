@@ -149,6 +149,40 @@ export async function onSetupProgress(handler: (path: string) => void): Promise<
   return listen<string>("setup-progress", (e) => handler(e.payload));
 }
 
+/** The last sync, as the top band shows it. */
+export interface SyncStatus {
+  state: "idle" | "syncing" | "synced" | "offline" | "error";
+  /** Seconds since the epoch of the last successful sync. */
+  last_synced_at: number | null;
+  /** The summary line, or what went wrong. */
+  message: string | null;
+}
+
+export async function syncStatus(): Promise<SyncStatus> {
+  if (!inTauri()) return { state: "idle", last_synced_at: null, message: null };
+  return invoke<SyncStatus>("sync_status");
+}
+
+/** Syncs the library with Drive and resolves with the outcome (failures are a status, not an error). */
+export async function syncNow(): Promise<SyncStatus> {
+  if (!inTauri()) {
+    await new Promise((r) => setTimeout(r, 600));
+    return { state: "synced", last_synced_at: Math.floor(Date.now() / 1000), message: "Synced 5 files. Nothing changed." };
+  }
+  return invoke<SyncStatus>("sync_now");
+}
+
+export async function onSyncStatus(handler: (s: SyncStatus) => void): Promise<UnlistenFn> {
+  if (!inTauri()) return () => {};
+  return listen<SyncStatus>("sync-status", (e) => handler(e.payload));
+}
+
+/** Fired when a sync changed the library, so it should be read again. */
+export async function onLibraryChanged(handler: () => void): Promise<UnlistenFn> {
+  if (!inTauri()) return () => {};
+  return listen("library-changed", () => handler());
+}
+
 /** A newer Romshelf installed in the background this session; it runs from the next start. */
 export async function updateReady(): Promise<string | null> {
   if (!inTauri()) return null;
@@ -172,6 +206,7 @@ function browserPreviewLibrary(): LibraryEntry[] {
     ["Tidewalker", "gba", "GBA", "#1F6B62", { state: "on_deck" }, true],
     ["Starfall Relay", "ps2", "PS2", "#6B3A2B", { state: "drive_only" }, false],
     ["Moss & Lantern", "gamecube", "GameCube", "#4A3470", { state: "on_deck" }, false],
+    ["Shadow the Hedgehog (USA).zip", "gamecube", "GameCube", "#4A3470", { state: "drive_only" }, false],
   ];
   return rows.map(([name, system, label, colour, location, in_steam], i) => ({
     rom: {
@@ -183,7 +218,7 @@ function browserPreviewLibrary(): LibraryEntry[] {
       size: 0,
       checksum: null,
       location,
-      recognized: true,
+      recognized: !name.endsWith(".zip"),
     },
     system_label: label,
     system_colour: colour,

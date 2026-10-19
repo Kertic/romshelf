@@ -9,7 +9,9 @@ mod update_cli;
 use clap::Parser;
 use cli::{Cli, Command};
 use romshelf_core::auth::open_browser;
+use romshelf_core::clock::{Clock, SystemClock};
 use romshelf_core::connection::{Connection, Folder, Status};
+use romshelf_core::db::Database;
 use romshelf_core::drive::scaffold;
 use romshelf_core::library::{self, LibraryEntry};
 use romshelf_core::paths::Paths;
@@ -17,7 +19,7 @@ use romshelf_core::update::{self, Outcome};
 use romshelf_core::Error;
 use romshelf_testkit::connection::{script_login, simulate_browser};
 use serde::Serialize;
-use state::AppState;
+use state::{AppState, SyncStatus};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -69,6 +71,23 @@ pub fn run() -> i32 {
                 &mut std::io::stdin().lock(),
                 &mut std::io::stdout(),
             )
+        }
+        Some(Command::Sync) => {
+            let result = Paths::from_env().and_then(|paths| {
+                let conn = Connection::real(&paths)?;
+                let db = Database::open(&paths.db_file())?;
+                conn.sync(&db, &paths)
+            });
+            match result {
+                Ok(report) => {
+                    println!("{}", report.summary());
+                    0
+                }
+                Err(e) => {
+                    eprintln!("{}", UiError::from(e).message);
+                    1
+                }
+            }
         }
         Some(cmd) => {
             eprintln!(
@@ -225,6 +244,78 @@ async fn drive_setup(
     .map_err(UiError::from)
 }
 
+#[tauri::command]
+fn sync_status(state: tauri::State<'_, AppState>) -> SyncStatus {
+    state
+        .sync_status
+        .lock()
+        .map(|s| s.clone())
+        .unwrap_or_default()
+}
+
+/// Syncs the library with Drive. Emits `sync-status` as it starts and ends, and
+/// `library-changed` when the index changed. A second call waits for the first.
+#[tauri::command]
+async fn sync_now(app: tauri::AppHandle) -> Result<SyncStatus, UiError> {
+    tauri::async_runtime::spawn_blocking(move || run_sync(&app))
+        .await
+        .map_err(internal)
+}
+
+fn set_sync_status(app: &tauri::AppHandle, status: SyncStatus) {
+    if let Ok(mut s) = app.state::<AppState>().sync_status.lock() {
+        *s = status.clone();
+    }
+    let _ = app.emit("sync-status", status);
+}
+
+fn run_sync(app: &tauri::AppHandle) -> SyncStatus {
+    let state = app.state::<AppState>();
+    let _one_at_a_time = state.sync_lock.lock().unwrap_or_else(|e| e.into_inner());
+    let previous = state
+        .sync_status
+        .lock()
+        .map(|s| s.clone())
+        .unwrap_or_default();
+    set_sync_status(
+        app,
+        SyncStatus {
+            state: "syncing",
+            ..previous.clone()
+        },
+    );
+    let result = match state.db.lock() {
+        Ok(db) => state.connection.sync(&db, &state.paths),
+        Err(e) => Err(Error::External(e.to_string())),
+    };
+    let status = match result {
+        Ok(report) => {
+            if report.changed() || report.full_scan {
+                let _ = app.emit("library-changed", ());
+            }
+            SyncStatus {
+                state: "synced",
+                last_synced_at: Some(SystemClock.now()),
+                message: Some(report.summary()),
+            }
+        }
+        Err(e) => {
+            let err = UiError::from(e);
+            SyncStatus {
+                state: if err.kind == "offline" {
+                    "offline"
+                } else {
+                    "error"
+                },
+                last_synced_at: previous.last_synced_at,
+                message: Some(err.message),
+            }
+        }
+    };
+    set_sync_status(app, status.clone());
+    status
+}
+
 /// The version downloaded in the background this session, if any. Runs from the next start.
 #[tauri::command]
 fn update_ready(state: tauri::State<'_, AppState>) -> Option<String> {
@@ -304,6 +395,8 @@ fn run_interface() -> i32 {
             drive_folders,
             drive_setup,
             update_ready,
+            sync_status,
+            sync_now,
             quit
         ])
         .setup(move |app| {

@@ -128,3 +128,27 @@ fn a_new_client_id_signs_out() {
     fake.connection.set_client(&other).unwrap();
     assert!(!fake.connection.status().unwrap().signed_in);
 }
+
+#[test]
+fn sync_needs_a_folder_then_indexes_it() {
+    let (dir, fake) = rig();
+    let db = romshelf_core::db::Database::open_in_memory().unwrap();
+    let paths = romshelf_core::paths::Paths::under(dir.path());
+    login(&fake);
+    let err = fake.connection.sync(&db, &paths).unwrap_err();
+    assert!(
+        err.to_string().contains("Open Romshelf to choose one"),
+        "{err}"
+    );
+
+    let folder = fake
+        .connection
+        .setup_folder(ROOT, "My Drive", &mut |_: &str| {})
+        .unwrap();
+    fake.drive
+        .create_file("Kirby.gba", &folder.layout.rom_folders["gba"], b"x")
+        .unwrap();
+    let report = fake.connection.sync(&db, &paths).unwrap();
+    assert_eq!(report.added, 1);
+    assert_eq!(db.roms().unwrap()[0].display_name, "Kirby");
+}
