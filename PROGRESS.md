@@ -102,13 +102,13 @@ Status: **built; waiting for the on-Deck checks.**
 
 ### On-Deck checklist
 
-- [ ] Add a game with "Show in Steam library", restart Steam: it appears under Non-Steam with the right name.
-- [ ] All artwork slots show correctly: library grid, the game's page (hero and logo), recent games, and the icon.
-- [ ] Launch it from Steam: the full pipeline runs, including save backup on quit.
-- [ ] Rename the ROM file in Drive, sync, launch the shortcut again: it still works.
-- [ ] Existing non-Steam shortcuts that Romshelf did not create are still present and unchanged.
-- [ ] Make a change while Steam is running, then exit Steam normally and start it again: the change is still there. If Steam overwrote it, report this.
-- [ ] (From stage 7.) L4 fast forward works in Twilight Princess, from its new Romshelf shortcut.
+- [x] Add a game with "Show in Steam library", restart Steam: it appears under Non-Steam with the right name. 2026-10-20, after the permissions fix: Kirby and Twilight Princess added; checked over SSH (67 shortcuts, both entries correct, four generated images each, both in Steam's layout list).
+- [x] All artwork slots show correctly: library grid, the game's page (hero and logo), recent games, and the icon.
+- [x] Launch it from Steam: the full pipeline runs, including save backup on quit.
+- [ ] Rename the ROM file in Drive, sync, launch the shortcut again: it still works. Not tested yet.
+- [x] Existing non-Steam shortcuts that Romshelf did not create are still present and unchanged. (After the restore; see "Found on the Deck" above.)
+- [ ] Make a change while Steam is running, then exit Steam normally and start it again: the change is still there. If Steam overwrote it, report this. Not yet possible: Backspace didn't edit the shortcut name, because Romshelf took Backspace as "back" (and Space as "A") even while typing. Fixed: in a text field, only Escape and up/down navigate; every other key types. To retest.
+- [x] (From stage 7.) L4 fast forward works in Twilight Princess, from its new Romshelf shortcut.
 
 ## Stage 7: controls (branch `stage-07-controls`, on top of stage 6)
 

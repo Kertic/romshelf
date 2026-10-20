@@ -113,6 +113,30 @@ export class PressTracker {
   }
 }
 
+/** Keys that still navigate while typing in a text field: everything else types. */
+const KEYS_WHILE_TYPING = new Set(["Escape", "ArrowUp", "ArrowDown", "PageUp", "PageDown"]);
+
+/**
+ * The button a key press means, or null when it means nothing to Romshelf. In a text field
+ * (the shortcut name), Backspace, Space, Enter and the left and right arrows edit the text.
+ */
+export function keyButton(key: string, typing: boolean): Button | null {
+  if (typing && !KEYS_WHILE_TYPING.has(key)) return null;
+  return KEY_TO_BUTTON[key] ?? null;
+}
+
+/** True when focus is somewhere text is typed. */
+export function isTyping(el: Element | null): boolean {
+  if (!el) return false;
+  const tag = el.tagName;
+  if (tag === "TEXTAREA") return true;
+  if (tag === "INPUT") {
+    const type = (el as HTMLInputElement).type;
+    return !["checkbox", "radio", "button", "submit", "range"].includes(type);
+  }
+  return (el as HTMLElement).isContentEditable === true;
+}
+
 export const KEY_TO_BUTTON: Record<string, Button> = {
   ArrowUp: "up",
   ArrowDown: "down",
