@@ -2,7 +2,7 @@
 
 ## Stage 7: controls (branch `stage-07-controls`, on top of stage 6)
 
-Status: **built; waiting for the on-Deck checks.** You chose the back-grip approach, and it works on the Deck.
+Status: **on-Deck checks passed 2026-10-20**, except the back grips in Twilight Princess, moved to stage 8 at your request (its shortcut needs Romshelf's Steam Input layout, which stage 8 writes for every shortcut). You chose the back-grip approach, and it works on the Deck.
 
 ### Back-grip spike (2026-10-19, on the Deck over SSH)
 
@@ -104,8 +104,8 @@ Status: **built; waiting for the on-Deck checks.** You chose the back-grip appro
 - [x] Swap A and B for Kirby only: swapped there, normal in another GBA game. (Only one GBA game so far: check Kirby swaps, then reset.)
 - [x] Bind fast forward for one game: it works in that game.
 - [x] Change the RetroArch GBA default: Kirby follows, except its overridden buttons.
-- [ ] L4 fast forward works in Kirby (done in the spike) and in Twilight Princess. 2026-10-19: works in Kirby. In Twilight Princess it fast-forwarded only sometimes, but its shortcut ("test") doesn't have Romshelf's Steam Input layout yet, so L4 sent nothing; that wasn't Romshelf's binding. To retest with the layout on that shortcut too.
-- [ ] Hold View + Menu for a second in Kirby, and in Twilight Princess: the game closes, back to Steam, and its save is backed up.
+- [ ] (Moved to stage 8.) L4 fast forward works in Kirby (done in the spike) and in Twilight Princess. 2026-10-19: works in Kirby. In Twilight Princess it fast-forwarded only sometimes, but its shortcut ("test") doesn't have Romshelf's Steam Input layout yet, so L4 sent nothing; that wasn't Romshelf's binding. To retest with the layout on that shortcut too.
+- [x] Hold View + Menu for a second in Kirby, and in Twilight Princess: the game closes, back to Steam, and its save is backed up. 2026-10-20: works in Kirby from the shortcut and from Romshelf, and closed Twilight Princess from its shortcut.
 
 Checks 1–4 passed on the Deck, 2026-10-19 (your report).
 
