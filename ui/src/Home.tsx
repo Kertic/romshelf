@@ -61,8 +61,9 @@ interface Props {
   onOpenEmulators?: () => void;
   onOpenSettings?: () => void;
   onOpenTransfers?: () => void;
-  onOpenSpike: () => void;
-  onQuit: () => void;
+  /** Moved to Settings in stage 9; kept so callers needn't change. */
+  onOpenSpike?: () => void;
+  onQuit?: () => void;
 }
 
 /** The Library (UI guide 5.1): system tabs, the tile grid, files Romshelf can't run, and the folder strip. */
@@ -85,8 +86,6 @@ export function Home({
   onOpenEmulators,
   onOpenSettings,
   onOpenTransfers,
-  onOpenSpike,
-  onQuit,
 }: Props) {
   const now = useNow();
   /** The tile with focus: the drawer shows its game. */
@@ -300,14 +299,6 @@ export function Home({
           </div>
         )}
 
-        <div className="home-actions">
-          <button className="button outline" data-focusable data-hint="Open" type="button" onClick={onOpenSpike}>
-            Open gamepad test
-          </button>
-          <button className="button outline" data-focusable data-hint="Quit" type="button" onClick={onQuit}>
-            Quit Romshelf
-          </button>
-        </div>
       </main>
       {drawerEntry && (
         <Drawer

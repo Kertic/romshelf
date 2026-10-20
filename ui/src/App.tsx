@@ -482,7 +482,13 @@ export function App() {
     const timer = setTimeout(() => {
       const active = document.activeElement as HTMLElement | null;
       const kept = active && active !== document.body && document.body.contains(active);
-      if (focusedTab.current === tab && kept) return;
+      // Focus the player already put on a tile or the drawer (a press as the Library appeared)
+      // stays where it is.
+      const chosen = focusedTab.current === null && active?.closest(".grid, .drawer");
+      if (kept && (focusedTab.current === tab || chosen)) {
+        focusedTab.current = tab;
+        return;
+      }
       focusedTab.current = tab;
       (document.querySelector<HTMLElement>(".tile[data-focusable]") ?? focusables()[0])?.focus();
       syncHint();
@@ -751,6 +757,8 @@ export function App() {
             copy: async (text) => {
               await navigator.clipboard.writeText(text);
             },
+            openGamepadTest: () => setScreen("spike"),
+            quit: () => void quit(),
           }}
         />
       )}

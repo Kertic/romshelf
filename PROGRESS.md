@@ -1,5 +1,88 @@
 # Progress
 
+## Stage 9: interface completion (branch `stage-09-interface`, on top of stage 8)
+
+Status: **built overnight while you were away, as you asked; waiting for the on-Deck checks.** Stage 8's last check (RetroArch loading the per-game remap file) is still to do too.
+
+### Built
+
+- **The ROM page** (guide 5.2 and 5.3) replaces the game's dialog.
+  - Left column: back link, large cover, title, `roms / <system> / <file>`, the emulator line, and Size, Location and Save backup at the foot.
+  - On the right:
+    - The action row: Play across the width (or **Set up {emulator}**, or **Download to Deck**, or download progress with Cancel), then **Download again** and **Remove from Deck…**.
+    - The "{core} functions" grid: Back up save data, Restore save from Drive…, Save states…, and the emulator's other functions marked "Comes in a later update".
+    - The Controls card and the Steam shortcut card side by side.
+  - Its dialogs (remove, restore, save states, conflict) open over the page, and the page behind them can't be reached.
+  - The guide's "Delete…" stays **Remove from Deck…**: you decided Romshelf never deletes from Drive.
+- **The Library drawer** (guide 5.1), 400 px on the right, always showing the focused tile's game:
+  - Its main action (Play, Set up, or Download to Deck).
+  - The function rows.
+  - The File group: Download again, and Remove from Deck…, which opens the page with the question.
+  - "Open ROM page: controls and Steam shortcut".
+- **Settings** (guide 6), opened with Menu or the top-band button:
+  - Google account: Sign out, which asks first.
+  - Drive folder: Change location… opens the first-run folder picker.
+  - Storage: the folder and free space; Change location… offers this Deck and each SD card, moves the ROMs, then restarts Romshelf.
+  - Saves: versions to keep, 1 to 50.
+  - Steam: add new ROMs automatically.
+  - About: version, Check for updates, Copy diagnostics (no tokens or secrets), Gamepad test and Quit Romshelf, which moved here from the Library.
+- **The Transfers panel** (guide 6), opened with View or the top-band **Transfers** button, which shows a count:
+  - Downloads, with progress and Cancel, and queued ones.
+  - Save backups waiting for Drive, with the last error.
+  - "Nothing in progress." when empty.
+- **Gamepad bindings** (guide 4):
+  - Menu opens Settings, View opens Transfers, and Y backs up the focused game's save, with a toast.
+  - The footer shows Y.
+- **Focus:**
+  - One ring style.
+  - Navigation picks the nearest element within the current region (top band, grid, drawer) before crossing regions, and never lands behind a dialog.
+  - The first press finds focus again if it was lost.
+  - Fixed: the Library's arrival focus no longer overrides a tile you've already moved to.
+- **States:**
+  - Skeleton tiles while the Library loads.
+  - The empty Library has the folder and Sync now.
+  - Offline: the status says so, and Download and Restore are disabled with a reason ("Offline. Playing games already on this Deck works; downloads and save backups wait for a connection.").
+  - Errors say what happened and one action, as before.
+- **A large Library:** above 120 games, only the rows near the screen are drawn (with two rows of overscan, so focus always has a neighbour). Tested with 2,000 games: under 60 tiles drawn, with the space for the rest kept.
+- **Text entry:** choosing a text field asks Steam for its on-screen keyboard (`steam://open/keyboard`), and a ⌨ button beside it opens Romshelf's own gamepad keyboard (Shift, Space, Delete, Done). In text fields, keys type instead of navigating.
+- **Accessibility:**
+  - Every text colour on every surface is at least 4.5:1, and so is text on the accent; white initials on each system colour are at least 4.5:1 too.
+  - Every interactive style is at least 44 px tall.
+  - Reduced motion is respected.
+  - Nothing relies on colour alone: warnings always carry their words.
+
+### Tests
+
+UI tests: 172, up from 106.
+- **Focus, generated over all seven screens:** each direction from every focusable either moves to something reachable or stays, every focusable has a footer hint, and dialogs keep focus inside.
+- **Contrast and targets:** 31 checks, read from `tokens.css` and `app.css`.
+- **Flows, driven by keys alone:**
+  - R1 and L1 switch system, A opens a game, and B returns to its tile.
+  - ROM page → Controls → back, and ROM page → Steam shortcut → Save.
+  - Set up comes first when the emulator is missing.
+  - The drawer follows focus.
+  - Settings, and back.
+  - Remove from the drawer asks first, with Cancel focused.
+- **Screens and components:** the drawer, the ROM page offline, 2,000 games, Settings (6), Transfers (2), and the keyboard (2).
+
+### Deferred
+
+- **WebDriver end-to-end tests and visual regression:** these need `tauri-driver` and WebKitWebDriver running the real app under a virtual display, and comparing screenshots needs that too. The same flows run now as app-level tests driven by keys; the WebDriver harness belongs with stage 10's CI work. The screens were checked by eye against the reference screenshots at 1280×800 in the preview.
+- **Settings "artwork service key":** SteamGridDB is deferred (stage 8), so the field isn't shown.
+
+### Confirm (on the Deck)
+
+- Steam's on-screen keyboard opens from `steam://open/keyboard` for a non-Steam app under Game Mode. If it doesn't, the ⌨ keyboard is there.
+
+### On-Deck checklist
+
+- [ ] Every action can be reached and completed without touching the screen.
+- [ ] Text is readable at arm's length on the Deck's screen.
+- [ ] The on-screen keyboard opens for the shortcut name field (Steam's, or ⌨), and the result is saved.
+- [ ] Focus is always visible, including after dialogs close.
+- [ ] Offline: the Library opens, downloaded games play, and Drive-only actions explain why they're unavailable.
+- [ ] (From stage 8.) Kirby with your GBA default: X acts as B and Y as A, alongside A and B, and your save loads.
+
 ## Stage 8: Steam shortcuts and artwork (branch `stage-08-steam-shortcuts`, on top of stage 7)
 
 Status: **built; waiting for the on-Deck checks.**

@@ -38,9 +38,7 @@ pub(crate) struct SettingsView {
 fn storage_choices(current: &Path) -> Vec<StorageChoice> {
     let mut out = Vec::new();
     let mut add = |path: PathBuf, label: String| {
-        let free = path
-            .parent()
-            .and_then(|p| FsDiskSpace.available(p).ok());
+        let free = path.parent().and_then(|p| FsDiskSpace.available(p).ok());
         out.push(StorageChoice {
             current: path == current,
             path: path.to_string_lossy().into_owned(),
@@ -49,7 +47,10 @@ fn storage_choices(current: &Path) -> Vec<StorageChoice> {
         });
     };
     if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-        add(home.join(romshelf_core::paths::DEFAULT_STORAGE_DIR), "This Deck".into());
+        add(
+            home.join(romshelf_core::paths::DEFAULT_STORAGE_DIR),
+            "This Deck".into(),
+        );
     }
     if let Ok(users) = std::fs::read_dir("/run/media") {
         for user in users.flatten() {
@@ -99,7 +100,10 @@ pub(crate) fn settings_view(state: tauri::State<'_, AppState>) -> Result<Setting
 
 /// Backups kept per game, 1 to 50.
 #[tauri::command]
-pub(crate) fn set_save_versions(state: tauri::State<'_, AppState>, count: usize) -> Result<(), UiError> {
+pub(crate) fn set_save_versions(
+    state: tauri::State<'_, AppState>,
+    count: usize,
+) -> Result<(), UiError> {
     if !(1..=50).contains(&count) {
         return Err(UiError {
             kind: "error",

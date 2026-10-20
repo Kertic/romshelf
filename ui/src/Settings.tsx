@@ -12,6 +12,9 @@ export interface SettingsActions {
   checkForUpdates: () => Promise<void>;
   diagnostics: () => Promise<string>;
   copy: (text: string) => Promise<void>;
+  /** The gamepad test from stage 0, and quitting Romshelf. */
+  openGamepadTest?: () => void;
+  quit?: () => void;
 }
 
 interface Props {
@@ -182,6 +185,16 @@ export function Settings({ view, actions, onBack, setBack, reload }: Props) {
             >
               Copy diagnostics
             </button>
+            {actions.openGamepadTest && (
+              <button className="button outline" data-focusable data-hint="Open" type="button" onClick={actions.openGamepadTest}>
+                Gamepad test
+              </button>
+            )}
+            {actions.quit && (
+              <button className="button outline" data-focusable data-hint="Quit" type="button" onClick={actions.quit}>
+                Quit Romshelf
+              </button>
+            )}
           </div>
         </section>
       </div>
