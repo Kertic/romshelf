@@ -56,14 +56,38 @@ impl FsSteamFiles {
     }
 }
 
+/// Writes through a temporary file renamed into place, keeping the file's permissions. A new
+/// file gets Steam's (`rwxr-xr-x`).
+///
+/// Found on the Deck (2026-10-20): another tool there, NonSteamLaunchers' scanner, treats a
+/// `shortcuts.vdf` that isn't executable as broken and replaces it with an empty list. A
+/// rewrite that dropped the executable bit cost every shortcut.
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
     let tmp = path.with_extension("romshelf-tmp");
     std::fs::write(&tmp, bytes)?;
+    let permissions = match std::fs::metadata(path) {
+        Ok(m) => Some(m.permissions()),
+        Err(_) => steam_default_permissions(),
+    };
+    if let Some(p) = permissions {
+        std::fs::set_permissions(&tmp, p)?;
+    }
     std::fs::rename(tmp, path)?;
     Ok(())
+}
+
+#[cfg(unix)]
+fn steam_default_permissions() -> Option<std::fs::Permissions> {
+    use std::os::unix::fs::PermissionsExt;
+    Some(std::fs::Permissions::from_mode(0o755))
+}
+
+#[cfg(not(unix))]
+fn steam_default_permissions() -> Option<std::fs::Permissions> {
+    None
 }
 
 fn read_optional(path: &Path) -> Result<Option<Vec<u8>>> {
@@ -315,6 +339,32 @@ mod tests {
         );
         assert!(!cfg.join("shortcuts.vdf.romshelf-1800000002.bak").exists());
         assert_eq!(std::fs::read(cfg.join("localconfig.vdf")).unwrap(), b"keep");
+    }
+
+    /// Another tool on the Deck empties a `shortcuts.vdf` that isn't executable.
+    #[cfg(unix)]
+    #[test]
+    fn a_rewrite_keeps_the_files_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let (root, steam) = steam();
+        let cfg = root.path().join("userdata/123/config");
+        std::fs::create_dir_all(&cfg).unwrap();
+        let file = cfg.join("shortcuts.vdf");
+        std::fs::write(&file, b"v0").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        steam.write_shortcuts("123", b"v1", 1).unwrap();
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&file), 0o755);
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o700)).unwrap();
+        steam.write_shortcuts("123", b"v2", 2).unwrap();
+        assert_eq!(mode(&file), 0o700, "whatever it was is kept");
+        // A new file is executable, as Steam's are.
+        std::fs::create_dir_all(root.path().join("userdata/9/config")).unwrap();
+        steam.write_shortcuts("9", b"new", 1).unwrap();
+        assert_eq!(
+            mode(&root.path().join("userdata/9/config/shortcuts.vdf")),
+            0o755
+        );
     }
 
     #[test]
