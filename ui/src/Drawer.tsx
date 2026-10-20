@@ -10,6 +10,8 @@ interface Props {
   onPlay: () => void;
   onDownload: () => void;
   onSetup: () => void;
+  /** No connection: Drive actions say why they're unavailable. */
+  offline?: boolean;
   now?: Date;
 }
 
@@ -17,7 +19,7 @@ interface Props {
  * The Library's drawer (UI guide 5.1): always the focused tile's game. Play or its first step,
  * the emulator's functions, the file actions, and a link to the ROM page.
  */
-export function Drawer({ entry, progress, onOpen, onPlay, onDownload, onSetup, now }: Props) {
+export function Drawer({ entry, progress, onOpen, onPlay, onDownload, onSetup, offline, now }: Props) {
   const rom = entry.rom;
   const state = rom.location.state;
   const line = emulatorLine(entry);
@@ -34,7 +36,7 @@ export function Drawer({ entry, progress, onOpen, onPlay, onDownload, onSetup, n
   );
 
   return (
-    <aside className="drawer" aria-label={`${rom.display_name} details`}>
+    <aside className="drawer" aria-label={`${rom.display_name} details`} data-region="drawer">
       <span className="mono muted small">
         {entry.system_label} · {rom.file_name} · {humanSize(rom.size)}
       </span>
@@ -60,9 +62,12 @@ export function Drawer({ entry, progress, onOpen, onPlay, onDownload, onSetup, n
           Set up {entry.emulator}
         </button>
       ) : playable ? (
-        <button className="button primary" data-focusable data-hint="Download" type="button" onClick={onDownload}>
-          Download to Deck
-        </button>
+        <>
+          <button className="button primary" data-focusable data-hint="Download" type="button" disabled={offline} onClick={onDownload}>
+            Download to Deck
+          </button>
+          {offline && <span className="tile-status warn">Offline. Download it when the Deck is back online.</span>}
+        </>
       ) : null}
 
       {playable && entry.emulator_ready && (
@@ -82,7 +87,7 @@ export function Drawer({ entry, progress, onOpen, onPlay, onDownload, onSetup, n
         <section className="functions" aria-label="File">
           <h3 className="group-label">File</h3>
           <div className="drawer-file">
-            <button className="button outline" data-focusable data-hint="Download" type="button" onClick={onDownload}>
+            <button className="button outline" data-focusable data-hint="Download" type="button" disabled={offline} onClick={onDownload}>
               Download again
             </button>
             <button className="button danger" data-focusable data-hint="Remove" type="button" onClick={() => onOpen("remove")}>

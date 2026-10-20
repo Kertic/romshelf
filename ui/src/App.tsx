@@ -61,7 +61,7 @@ import {
   type SyncStatus,
 } from "./api";
 import { FirstRun, type BackAction } from "./FirstRun";
-import { focusables, moveFocus, type Direction } from "./focus";
+import { focusables, focusLost, moveFocus, restoreFocus, type Direction } from "./focus";
 import { Footer, type Hint } from "./Footer";
 import { GamepadSpike } from "./GamepadSpike";
 import { Emulators, type SetupState } from "./Emulators";
@@ -412,6 +412,12 @@ export function App() {
   const onPress = useCallback(
     (b: Button, from: "pad" | "keyboard") => {
       if (screen === "controls" && keyHandler.current?.(b, from)) return;
+      // Focus went away (its element was removed, or a dialog closed): the first press finds it.
+      if (focusLost() && b !== "b" && b !== "menu" && b !== "view") {
+        restoreFocus(document.querySelector("[data-dialog]") ?? document);
+        syncHint();
+        if (b === "a") return;
+      }
       if (b === "up" || b === "down" || b === "left" || b === "right") {
         // An open dialog keeps focus inside it.
         moveFocus(b as Direction, document.querySelector("[data-dialog]") ?? document);
@@ -650,6 +656,7 @@ export function App() {
         <RomPage
           key={dialogEntry.rom.id}
           startWith={dialogStart}
+          offline={sync?.state === "offline"}
           entry={dialogEntry}
           progress={progress[dialogEntry.rom.id]}
           error={transferErrors[dialogEntry.rom.id] ?? null}

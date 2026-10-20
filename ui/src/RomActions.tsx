@@ -76,6 +76,8 @@ interface Props {
   now?: Date;
   /** A dialog to open the page with (the drawer's "Remove from Deck…", say). */
   startWith?: View;
+  /** No connection: Drive actions are disabled and say why. */
+  offline?: boolean;
 }
 
 /** What the game's dialog can do with its save. */
@@ -153,6 +155,7 @@ export function RomPage({
   onSteamShortcut,
   now,
   startWith,
+  offline,
 }: Props) {
   const [view, setView] = useState<View>(startWith ?? "main");
   /** The outcome of the last save action, and a warning that came with it. */
@@ -335,6 +338,7 @@ export function RomPage({
                 data-autofocus={needsSetup || canPlay ? undefined : true}
                 data-hint="Download"
                 type="button"
+                disabled={offline}
                 onClick={onDownload}
               >
                 {state === "on_deck" ? "Download again" : "Download to Deck"}
@@ -358,6 +362,11 @@ export function RomPage({
             </div>
           )}
           {needsSetup && setup?.failed && setup.message && <p className="error">{setup.message}</p>}
+          {offline && (
+            <p className="tile-status warn" role="status">
+              Offline. Playing games already on this Deck works; downloads and save backups wait for a connection.
+            </p>
+          )}
           {error && <p className="error">{error}</p>}
           {launch?.error && <p className="error">{launch.error}</p>}
           {saveNote && <p className={saveNote.error ? "error" : "body-text"}>{saveNote.text}</p>}
@@ -372,10 +381,10 @@ export function RomPage({
                     "backup",
                     backingUp ? "Backing up…" : "Back up save data",
                     backupLine.text,
-                    backingUp ? undefined : () => void backup(),
+                    backingUp || offline ? undefined : () => void backup(),
                     "Back up",
                   ),
-                  card("restore", "Restore save from Drive…", "Choose a backup", () => setView("restore"), "Restore"),
+                  card("restore", "Restore save from Drive…", offline ? "Needs a connection" : "Choose a backup", offline ? undefined : () => setView("restore"), "Restore"),
                   entry.keeps_states && card("states", "Save states…", "Kept in Drive", () => setView("states")),
                 ]}
                 {entry.actions.map((a) => {

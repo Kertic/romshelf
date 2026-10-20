@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AppInfo, LibraryEntry, Progress, StorageStatus, SyncStatus } from "./api";
 import { Drawer } from "./Drawer";
-import { counts, inTab, syncLine, TABS } from "./library";
+import { counts, inTab, ROW_HEIGHT, syncLine, TABS, visibleRows, WINDOW_FROM } from "./library";
 import type { View } from "./RomActions";
 
 function initials(name: string): string {
@@ -91,6 +91,14 @@ export function Home({
   const now = useNow();
   /** The tile with focus: the drawer shows its game. */
   const [focused, setFocused] = useState<string | null>(null);
+  // Large libraries draw only the rows near the screen.
+  const scroller = useRef<HTMLElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState({ top: 0, height: 800, gridTop: 0 });
+  const measure = () => {
+    const el = scroller.current;
+    if (el) setView({ top: el.scrollTop, height: el.clientHeight || 800, gridTop: gridRef.current?.offsetTop ?? 0 });
+  };
   const current = TABS.find((t) => t.id === tab) ?? TABS[0];
   const shown = entries ? inTab(entries, current.id) : null;
   const roms = shown?.filter((e) => e.rom.recognized) ?? [];
@@ -109,7 +117,7 @@ export function Home({
 
   return (
     <>
-      <header className="top-band">
+      <header className="top-band" data-region="top">
         <div className="app-name">Romshelf</div>
         <nav className="tabs" aria-label="Systems">
           <span className="key-cap mono">L1</span>
@@ -170,7 +178,7 @@ export function Home({
       </header>
 
       <div className="library">
-      <main className="content home">
+      <main className="content home" ref={scroller} onScroll={measure} data-region="grid">
         <div className="home-heading">
           <h1 className="section-heading">{current.heading}</h1>
           {entries && (
@@ -187,6 +195,18 @@ export function Home({
             The storage at {storage.root} isn&rsquo;t available, so downloaded games can&rsquo;t be played. Insert
             the SD card that holds your ROMs.
           </p>
+        )}
+
+        {!entries && !error && (
+          <div className="grid" aria-busy="true" aria-label="Loading the library">
+            {Array.from({ length: 8 }, (_, i) => (
+              <span key={i} className="tile skeleton" aria-hidden>
+                <span className="cover" />
+                <span className="skeleton-line" />
+                <span className="skeleton-line short" />
+              </span>
+            ))}
+          </div>
         )}
 
         {entries && entries.length === 0 && (
@@ -210,9 +230,21 @@ export function Home({
           <p className="muted">No {current.label} ROMs yet.</p>
         )}
 
-        {roms.length > 0 && (
-          <div className="grid">
-            {roms.map((e) => {
+        {roms.length > 0 && (() => {
+          const windowed = roms.length > WINDOW_FROM;
+          const rowCount = Math.ceil(roms.length / 4);
+          const { first, last } = windowed
+            ? visibleRows(view.top, view.height, view.gridTop, rowCount)
+            : { first: 0, last: rowCount };
+          const shownTiles = roms.slice(first * 4, last * 4);
+          return (
+          <div
+            className={windowed ? "grid windowed" : "grid"}
+            ref={gridRef}
+            style={windowed ? { paddingTop: first * ROW_HEIGHT, paddingBottom: (rowCount - last) * ROW_HEIGHT } : undefined}
+            aria-rowcount={windowed ? rowCount : undefined}
+          >
+            {shownTiles.map((e) => {
               const status = tileStatus(e, progress[e.rom.id]);
               return (
                 <button
@@ -224,7 +256,10 @@ export function Home({
                   data-rom-id={e.rom.id}
                   type="button"
                   onClick={() => onOpen?.(e.rom.id)}
-                  onFocus={() => setFocused(e.rom.id)}
+                  onFocus={(ev) => {
+                    setFocused(e.rom.id);
+                    ev.currentTarget.scrollIntoView?.({ block: "nearest" });
+                  }}
                 >
                   <span className="cover" style={{ background: e.system_colour }}>
                     <span className="cover-system mono">{e.system_label}</span>
@@ -238,7 +273,8 @@ export function Home({
               );
             })}
           </div>
-        )}
+          );
+        })()}
 
         {unrecognized.length > 0 && (
           <section className="unrecognized" aria-label="Files Romshelf can't run">
@@ -281,6 +317,7 @@ export function Home({
           onPlay={() => onPlay?.(drawerEntry.rom.id)}
           onDownload={() => onDownload?.(drawerEntry.rom.id)}
           onSetup={() => drawerEntry.emulator_id && onSetup?.(drawerEntry.emulator_id)}
+          offline={sync?.state === "offline"}
         />
       )}
       </div>

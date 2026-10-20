@@ -245,3 +245,14 @@ describe("emulator setup from a game", () => {
     expect(emulatorLine(ps2)).toEqual({ text: "Romshelf can't run PS2 games yet.", warn: true });
   });
 });
+
+describe("offline", () => {
+  it("downloads and backups say they need a connection; Play still works", () => {
+    const onPlay = vi.fn();
+    setup({ state: "on_deck" }, { offline: true, onPlay });
+    expect(screen.getByText(/Offline\. Playing games already on this Deck works/)).toBeTruthy();
+    expect((button("Download again") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(button("Play"));
+    expect(onPlay).toHaveBeenCalled();
+  });
+});
