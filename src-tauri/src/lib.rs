@@ -8,6 +8,8 @@ mod gamepad;
 mod library_cli;
 mod saves_cmd;
 mod state;
+mod steam_cli;
+mod steam_cmd;
 mod update_cli;
 
 use clap::Parser;
@@ -201,6 +203,28 @@ pub fn run() -> i32 {
                     set.as_deref(),
                     &mut std::io::stdout(),
                 ),
+                Err(e) => {
+                    eprintln!("{}", UiError::from(e).message);
+                    1
+                }
+            }
+        }
+        Some(Command::Steam(cmd)) => {
+            let setup =
+                Paths::for_app().and_then(|paths| Ok((Database::open(&paths.db_file())?, paths)));
+            match setup {
+                Ok((db, paths)) => {
+                    let files = romshelf_core::steam::FsSteamFiles {
+                        steam_root: paths.steam_root.clone(),
+                    };
+                    let ctx = romshelf_core::steam::apply::SteamContext {
+                        db: &db,
+                        files: &files,
+                        paths: &paths,
+                        now: SystemClock.now(),
+                    };
+                    steam_cli::run(cmd, &ctx, &mut std::io::stdout())
+                }
                 Err(e) => {
                     eprintln!("{}", UiError::from(e).message);
                     1
@@ -433,6 +457,7 @@ fn run_sync(app: &tauri::AppHandle) -> SyncStatus {
     if status.state == "synced" {
         saves_cmd::flush_in_background(app);
         controls_cmd::pull_in_background(app);
+        steam_cmd::after_sync(app);
     }
     set_sync_status(app, status.clone());
     status
@@ -1050,6 +1075,12 @@ fn run_interface(state: AppState, launch: Option<String>) -> i32 {
             controls_cmd::reset_controls,
             controls_cmd::promote_count,
             controls_cmd::promote_controls,
+            steam_cmd::steam_shortcut,
+            steam_cmd::save_shortcut,
+            steam_cmd::set_shortcut_artwork,
+            steam_cmd::set_steam_auto_add,
+            steam_cmd::steam_restart_notice,
+            steam_cmd::image_files,
             quit
         ])
         .setup(move |app| {

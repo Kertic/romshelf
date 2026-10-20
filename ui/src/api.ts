@@ -569,3 +569,98 @@ function previewControls(emulatorId: string, system: string, romId: string | nul
     game_diff: romId ? { r4: c } : {},
   };
 }
+
+export type ArtSlot = "capsule" | "wide_capsule" | "hero" | "logo" | "icon";
+
+export interface SlotView {
+  slot: ArtSlot;
+  label: string;
+  /** The user's file, Romshelf's generated artwork, or nothing (Logo only). */
+  source: "chosen" | "generated" | "missing";
+  preview: string | null;
+}
+
+/** A game's Steam shortcut, for the shortcut screen (UI guide 5.5). */
+export interface ShortcutView {
+  rom_id: string;
+  shown: boolean;
+  name: string;
+  default_name: string;
+  target: string;
+  launch_options: string;
+  slots: SlotView[];
+  auto_add: boolean;
+}
+
+/** What writing to Steam changed. */
+export interface Applied {
+  added: number;
+  updated: number;
+  removed: number;
+  artwork: number;
+  restart_needed: boolean;
+}
+
+export interface ImageFile {
+  path: string;
+  name: string;
+  folder: string;
+}
+
+const previewSlots = (): SlotView[] =>
+  (["capsule", "wide_capsule", "hero", "logo", "icon"] as ArtSlot[]).map((slot) => ({
+    slot,
+    label: { capsule: "Capsule", wide_capsule: "Wide capsule", hero: "Hero", logo: "Logo", icon: "Icon" }[slot],
+    source: slot === "logo" ? "missing" : "generated",
+    preview: null,
+  }));
+
+export async function steamShortcut(romId: string): Promise<ShortcutView> {
+  if (!inTauri()) {
+    return {
+      rom_id: romId,
+      shown: true,
+      name: "Tidewalker",
+      default_name: "Tidewalker",
+      target: "/home/deck/Applications/romshelf.AppImage",
+      launch_options: `launch --id ${romId}`,
+      slots: previewSlots(),
+      auto_add: false,
+    };
+  }
+  return invoke<ShortcutView>("steam_shortcut", { romId });
+}
+
+/** Saves "show in Steam" and the name, and writes Steam's files. */
+export async function saveShortcut(romId: string, shown: boolean, name: string): Promise<Applied> {
+  if (!inTauri()) return { added: shown ? 1 : 0, updated: 0, removed: shown ? 0 : 1, artwork: 4, restart_needed: true };
+  return invoke<Applied>("save_shortcut", { romId, shown, name });
+}
+
+/** Uses an image for a slot; `null` goes back to the generated artwork. */
+export async function setShortcutArtwork(romId: string, slot: ArtSlot, path: string | null): Promise<ShortcutView> {
+  if (!inTauri()) return steamShortcut(romId);
+  return invoke<ShortcutView>("set_shortcut_artwork", { romId, slot, path });
+}
+
+export async function setSteamAutoAdd(on: boolean): Promise<Applied> {
+  if (!inTauri()) return { added: 0, updated: 0, removed: 0, artwork: 0, restart_needed: false };
+  return invoke<Applied>("set_steam_auto_add", { on });
+}
+
+/** True once per batch of changes Steam hasn't picked up yet. */
+export async function steamRestartNotice(): Promise<boolean> {
+  if (!inTauri()) return false;
+  return invoke<boolean>("steam_restart_notice");
+}
+
+export async function imageFiles(): Promise<ImageFile[]> {
+  if (!inTauri()) return [{ path: "/home/deck/Pictures/tidewalker.png", name: "tidewalker.png", folder: "Pictures" }];
+  return invoke<ImageFile[]>("image_files");
+}
+
+/** Shortcut changes written after a sync (new games added automatically): the count. */
+export async function onSteamChanged(handler: (changes: number) => void): Promise<UnlistenFn> {
+  if (!inTauri()) return () => {};
+  return listen<number>("steam-changed", (e) => handler(e.payload));
+}

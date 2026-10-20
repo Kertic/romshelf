@@ -452,24 +452,138 @@ fn retroarch_settings_are_names_retroarch_itself_writes() {
 }
 
 #[test]
-fn retroarch_buttons_match_the_steam_virtual_gamepad() {
+fn retroarch_binds_each_deck_button_to_its_own_slot_whatever_the_layout() {
     // RetroArch's own autoconfig for the pad Steam gives games: Deck A is button 0, B 1.
     let auto = std::fs::read_to_string(fixture("steam-virtual-gamepad.cfg")).unwrap();
     assert!(auto.contains("input_b_btn = \"0\"") && auto.contains("input_a_btn = \"1\""));
-    let cfg = retroarch::config(System::Gba, &tidewalker());
-    // Swapped for this game: Deck A (0) drives the GBA's B, Deck B (1) its A.
-    assert!(cfg.contains("input_player1_b_btn = \"0\"\n"));
-    assert!(cfg.contains("input_player1_a_btn = \"1\"\n"));
-    // The D-pad and the left stick both move.
-    assert!(cfg.contains("input_player1_up_btn = \"11\"\n"));
-    assert!(cfg.contains("input_player1_up_axis = \"-1\"\n"));
-    // Grips are keys: L4 sends F9.
-    assert!(cfg.contains("input_toggle_fast_forward = \"f9\"\n"));
-    assert!(cfg.contains("input_rewind = \"nul\"\n"));
-    // Nothing waits for a hotkey-enable button, and no other hotkey is left on a button.
-    assert!(cfg.contains("input_enable_hotkey_btn = \"nul\"\n"));
-    assert!(cfg.contains("input_fps_toggle_btn = \"nul\"\n"));
-    assert!(cfg.contains("input_autodetect_enable = \"false\"\n"));
+    for layout in [defaults::built_in(&gba()), tidewalker()] {
+        let cfg = retroarch::config(System::Gba, &layout);
+        assert!(cfg.contains(
+            "input_player1_b_btn = \"0\"
+"
+        ));
+        assert!(cfg.contains(
+            "input_player1_a_btn = \"1\"
+"
+        ));
+        assert!(cfg.contains(
+            "input_player1_up_btn = \"11\"
+"
+        ));
+        assert!(cfg.contains(
+            "input_player1_l_y_minus_axis = \"-1\"
+"
+        ));
+        assert!(cfg.contains(
+            "input_enable_hotkey_btn = \"nul\"
+"
+        ));
+        assert!(cfg.contains(
+            "input_fps_toggle_btn = \"nul\"
+"
+        ));
+        assert!(cfg.contains(
+            "input_autodetect_enable = \"false\"
+"
+        ));
+    }
+}
+
+/// A remap line's value.
+fn remapped(rmp: &str, key: &str) -> String {
+    rmp.lines()
+        .find_map(|l| l.strip_prefix(&format!("input_player1_{key} = \"")))
+        .map(|v| v.trim_end_matches('"').to_string())
+        .unwrap_or_else(|| panic!("{key} missing"))
+}
+
+#[test]
+fn the_remap_sends_each_slot_to_its_game_button() {
+    // RetroPad ids: B 0, A 8, Up 4. Deck A sits on the RetroPad's B slot.
+    let rmp = retroarch::remap(System::Gba, &defaults::built_in(&gba()));
+    assert_eq!(remapped(&rmp, "btn_b"), "8", "Deck A is the GBA's A");
+    assert_eq!(remapped(&rmp, "btn_a"), "0", "Deck B is the GBA's B");
+    assert_eq!(
+        remapped(&rmp, "stk_l_y-"),
+        "4",
+        "the left stick moves like the D-pad"
+    );
+    assert_eq!(remapped(&rmp, "btn_y"), "-1", "Deck X does nothing");
+    let swapped = retroarch::remap(System::Gba, &tidewalker());
+    assert_eq!(remapped(&swapped, "btn_b"), "0");
+    assert_eq!(remapped(&swapped, "btn_a"), "8");
+    assert!(rmp.contains(
+        "input_remap_port_p1 = \"0\"
+"
+    ));
+}
+
+#[test]
+fn two_deck_buttons_can_drive_one_game_button() {
+    // Your GBA default on the Deck: X also B, Y also A.
+    let layout = merge(
+        &defaults::built_in(&gba()),
+        &from_pairs(&[("x", Some("b")), ("y", Some("a"))]).unwrap(),
+    );
+    let rmp = retroarch::remap(System::Gba, &layout);
+    assert_eq!(remapped(&rmp, "btn_b"), "8", "Deck A: A");
+    assert_eq!(remapped(&rmp, "btn_x"), "8", "Deck Y: A too");
+    assert_eq!(remapped(&rmp, "btn_a"), "0", "Deck B: B");
+    assert_eq!(remapped(&rmp, "btn_y"), "0", "Deck X: B too");
+}
+
+#[test]
+fn a_grip_on_a_game_button_takes_a_free_slot() {
+    let layout = merge(
+        &defaults::built_in(&gba()),
+        &from_pairs(&[("l4", Some("a"))]).unwrap(),
+    );
+    let cfg = retroarch::config(System::Gba, &layout);
+    let rmp = retroarch::remap(System::Gba, &layout);
+    // Deck X is unbound, so its slot (Y) carries L4's key, and X itself is left off it.
+    assert!(cfg.contains(
+        "input_player1_y = \"f9\"
+"
+    ));
+    assert!(cfg.contains(
+        "input_player1_y_btn = \"nul\"
+"
+    ));
+    assert_eq!(remapped(&rmp, "btn_y"), "8");
+    // A grip on a hotkey stays a hotkey.
+    assert!(cfg.contains(
+        "input_save_state = \"f11\"
+"
+    ));
+}
+
+#[test]
+fn a_button_on_a_hotkey_drives_no_game_button() {
+    let layout = merge(
+        &defaults::built_in(&gba()),
+        &from_pairs(&[("r3", Some("rewind"))]).unwrap(),
+    );
+    assert!(retroarch::config(System::Gba, &layout).contains(
+        "input_rewind_btn = \"8\"
+"
+    ));
+    assert_eq!(
+        remapped(&retroarch::remap(System::Gba, &layout), "btn_r3"),
+        "-1"
+    );
+}
+
+#[test]
+fn retroarch_golden_remaps() {
+    golden(
+        "gba-default.rmp",
+        &retroarch::remap(System::Gba, &defaults::built_in(&gba())),
+    );
+    let n64 = Scope::new("retroarch", System::N64);
+    golden(
+        "n64-default.rmp",
+        &retroarch::remap(System::N64, &defaults::built_in(&n64)),
+    );
 }
 
 // Dolphin

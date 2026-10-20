@@ -1,5 +1,128 @@
 # Progress
 
+## Stage 8: Steam shortcuts and artwork (branch `stage-08-steam-shortcuts`, on top of stage 7)
+
+Status: **built; waiting for the on-Deck checks.**
+
+### Built
+
+- **`shortcuts.vdf`, read and written by Romshelf's own code** (`steam/vdf.rs`), not the `steam_shortcuts_util` crate the stage file names.
+  - Your Deck's file has fields newer than the crate's fixed list (`FlatpakAppID`, `sortas`), and a fixed list could drop them from shortcuts Romshelf doesn't own.
+  - The reader keeps every key, value and their order, so the file reads and writes back byte for byte. Tested on a sanitised copy of your Deck's file: 67 shortcuts, with names and paths replaced.
+- **Ownership:** Romshelf's entries carry the tag `Romshelf`, and their app ID is one Romshelf derives for a game. An entry is changed or removed only when both are true. Anything else, even with a matching name or Romshelf's tag, is left exactly as it is.
+- **Entry contents:**
+  - `AppName`: the game's name, editable.
+  - `Exe`: `"~/Applications/romshelf.AppImage"`, quoted.
+  - `StartDir`: its folder.
+  - `LaunchOptions`: `launch --id <rom-id>`.
+  - `icon`: the grid icon file.
+  - The other fields are as Steam writes them, in Steam's order. Romshelf only ever changes those five, so play time and Steam's own fields are kept.
+- **App ID:** CRC-32 of `romshelf/<rom-id>` with the shortcut bit set, written into the entry. It stays the same when the game is renamed (in Romshelf or in Drive), so its artwork isn't orphaned. Two games with the same name get different IDs.
+- **Writing:**
+  - Each write first copies the file to `shortcuts.vdf.romshelf-<time>.bak` (the newest five are kept).
+  - It goes through a temporary file renamed into place, so a failure leaves the original.
+  - A missing file or `config` folder is created.
+- **Steam account:** the latest `timestamp` in `loginusers.vdf`. Your Deck has two accounts and no `MostRecent` flag, so the newest timestamp is 85959576. The `steam.user` setting overrides it.
+- **Artwork** (`steam/artwork.rs`):
+  - File names: `<id>p` capsule, `<id>` wide capsule, `<id>_hero`, `<id>_logo`, `<id>_icon`. That's what the 270-odd files in your grid folder use (EmuDeck's and Steam ROM Manager's).
+  - Every slot except Logo gets generated artwork in the tile style (system colour, system label, initials) at Steam's sizes: 600×900, 920×430, 1920×620, 256×256.
+  - A file you choose is copied into Romshelf's data folder, so moving the original changes nothing.
+  - Writing a slot removes that slot's file of another type. Taking a game out of Steam removes all its artwork.
+- **Steam Input layout per shortcut** (the stage 7 back grips):
+  - Each shortcut gets Romshelf's layout: Steam's own gamepad template with the grips sending F9–F12, built on the Deck from Steam's template rather than shipping Valve's file.
+  - It's filed under the shortcut's name in lower case without dots, and added to Steam's layout list. Renamed and removed shortcuts have their entries taken out.
+- **Reconcile and apply** (`steam/apply.rs`):
+  - A row in `shortcuts` means "show in Steam"; games you took out are remembered in a new `steam_hidden` table.
+  - Apply brings shortcuts, artwork and layouts in line, and applying again changes nothing.
+  - A game gone from Drive loses its shortcut.
+- **"Add every new ROM to Steam automatically"** (off by default): after a sync, playable games not in Steam, and not taken out by you, are added.
+- **When changes are written:** on Save, on the automatic setting, and after each sync. Steam shows them after it restarts. The prompt "Restart Steam to apply" comes once per batch.
+- **Commands:** `romshelf steam list` (each game and whether Steam's file has it yet) and `romshelf steam apply`.
+- **Interface:**
+  - **The Steam shortcut screen** (guide 5.5):
+    - Name in Steam.
+    - Five artwork slots: "Missing" only for Logo, "Choose file…" from Pictures, Downloads or Desktop, and back to generated.
+    - "What Steam launches", with the target and launch options.
+    - A library preview, "Show {name} in Steam library", "Add every new ROM…", **Save shortcut** and **Remove from Steam**.
+  - **The game's dialog:** a Steam shortcut group ("In your library" or "Not in Steam").
+  - **Library tiles** already show "In Steam".
+
+### Tests
+
+- 16 Steam tests:
+  - The Deck's file round-trips byte for byte.
+  - Adding leaves all 67 other entries as they were, with Steam's field order.
+  - Renaming then removing touches only Romshelf's entry.
+  - An untagged entry is never touched, even with Romshelf's app ID.
+  - A tagged entry with an unknown ID is left alone.
+  - Reconciling twice writes nothing.
+  - A missing file is started fresh.
+  - Quotes and accents in names.
+  - Stable, distinct app IDs.
+  - Apply writes the entry, four generated images at Steam's sizes, the layout and its list entry, and a once-only restart notice.
+  - Applying again changes nothing, with no second backup.
+  - Chosen artwork replaces the generated type, back to generated works, and removal clears every file and the layout entry.
+  - A rename keeps the app ID and moves the layout.
+  - A game gone from Drive loses its shortcut.
+  - Adding every new ROM leaves out games you took out.
+- 15 unit tests:
+  - The format (round trip, damage refused).
+  - CRC-32, app IDs, file names and initials.
+  - Five backups kept, and a failed write leaving the original.
+  - A missing `config` folder.
+  - Plain grid names.
+  - The account choice.
+  - The grip layout from a template, layout keys, and layout-list entries added once and removed cleanly.
+- 7 UI tests: the screen, saving the name, Remove, choosing a file, back to generated, the whole-library setting, and the restart prompt.
+
+### Found on the Deck: lost shortcuts (2026-10-20)
+
+- After the first apply and two Steam restarts, your shortcuts were down to four (Battle.net, Minecraft Launcher, Nexon Launcher, NonSteamLaunchers), and `romshelf.AppImage` was gone.
+- **Cause:**
+  - NonSteamLaunchers' scanner (`~/.config/systemd/user/NSLGameScanner.py`, a user service that restarts constantly) checks whether `shortcuts.vdf` is executable. If it isn't, it writes an empty shortcut list and adds back only its own launchers.
+  - Steam's file is `rwxr-xr-x`. Romshelf's write-then-rename left it `rw-r--r--`, so the scanner's next pass emptied it.
+- **Fix:** rewrites keep the file's permissions, and a new file gets `rwxr-xr-x`. Tested on Linux.
+- **Recovery:** Romshelf's pre-write backups held your shortcuts. At your choice, the 65 from 02:49 were restored (you had deleted "test" and "kirb" yourself), with Steam closed and the 4-shortcut file kept as `shortcuts.vdf.before-restore-1792482942.bak`. The scanner then rewrote the file 11 times in two minutes and kept all 65.
+- **Still a risk:** the scanner rewrites the file about every ten seconds, from the copy it read at the start of its pass, so a pass running across a Romshelf write could undo it. Romshelf re-applies after every sync, which repairs that; the "change while Steam runs" check will show whether it matters.
+
+### Found on the Deck: two buttons on one game button (2026-10-20)
+
+- Your RetroArch GBA default gave two buttons each to A and B (X also B, Y also A). RetroArch's own settings allow only one controller button per game button, so Romshelf wrote the first and silently dropped the second.
+- **Fix** (you chose making it work, in the emulator rather than in Steam's layout):
+  - Each Deck button is now bound to its own RetroPad slot by position, which also keeps RetroArch's menu working normally.
+  - A **remap file** sends each slot to the game button the layout chooses, so several buttons can drive one.
+  - RetroArch 1.19.1's source (`configuration.c`) sets the format and where it's read from (`<remap folder>/<core name>/<core name>.rmp`). The core names come from the Deck's info files (mGBA, Snes9x, Mupen64Plus-Next).
+  - Each game has its own remap folder (`config/romshelf/remaps/<rom-id>`), so the file never depends on the ROM's name, and `remap_save_on_exit` is off for Romshelf's launches.
+  - A back grip on a game button takes the slot of a Deck button the layout leaves unbound.
+- **Confirm on the Deck:** RetroArch loads the per-game remap (your X-also-B, Y-also-A layout works in Kirby).
+
+### Choices made
+
+- **Romshelf's own `shortcuts.vdf` code** instead of the crate (above).
+- **App ID from the rom-id** rather than the crate's name-based calculation, stored and written explicitly. So "does renaming change the ID?" doesn't arise: it never does.
+- **Writing while Steam runs:** Romshelf writes its changes when you save, and again after every sync, so if Steam ever overwrites the file on exit, the next sync or start puts them back. The last on-Deck check tells us whether Steam does overwrite it.
+
+### Deferred
+
+- **SteamGridDB search ("Find artwork"):** its API page couldn't be read when the kit's links were checked, so it would be built on guesses. The button stays hidden, as the guide says it should with no key. You can choose files or keep the generated artwork.
+
+### Confirm (on the Deck)
+
+- The artwork file names, by setting artwork through Steam's own interface for one shortcut and reading what Steam writes.
+- Steam's rule for a layout's folder name beyond dropping dots (names with `:`, `&` or accents).
+
+### On-Deck checklist
+
+- [x] Add a game with "Show in Steam library", restart Steam: it appears under Non-Steam with the right name. 2026-10-20, after the permissions fix: Kirby and Twilight Princess added; checked over SSH (67 shortcuts, both entries correct, four generated images each, both in Steam's layout list).
+- [x] All artwork slots show correctly: library grid, the game's page (hero and logo), recent games, and the icon.
+- [x] Launch it from Steam: the full pipeline runs, including save backup on quit.
+- [x] Rename the ROM file in Drive, sync, launch the shortcut again: it still works. 2026-10-20: it worked, but two problems showed up:
+  - Romshelf downloaded the game again under the new name and left the old copy (8 MB) beside it. Fixed: a rename or move in Drive now renames the copy on the Deck, never over a file already there.
+  - RetroArch names saves after the ROM file, so Kirby started a fresh save (`…renamed.srm`) and the old one (`…(USA).srm`, 03:11) was no longer read. Fixed: before each launch, saves and states under an old name move to the current one. Each game has its own folder, so nothing else is in there. When files exist under both names, nothing moves, rather than guess. Your Deck has both now; the old one is your real progress, and both are in Drive.
+- [x] Existing non-Steam shortcuts that Romshelf did not create are still present and unchanged. (After the restore; see "Found on the Deck" above.)
+- [x] Make a change while Steam is running, then exit Steam normally and start it again: the change is still there. If Steam overwrote it, report this. 2026-10-20: the new name stayed. First it couldn't be tried: Backspace didn't edit the shortcut name, because Romshelf took Backspace as "back" (and Space as "A") even while typing. Fixed: in a text field, only Escape and up/down navigate; every other key types. To retest.
+- [x] (From stage 7.) L4 fast forward works in Twilight Princess, from its new Romshelf shortcut.
+
 ## Stage 7: controls (branch `stage-07-controls`, on top of stage 6)
 
 Status: **on-Deck checks passed 2026-10-20**, except the back grips in Twilight Princess, moved to stage 8 at your request (its shortcut needs Romshelf's Steam Input layout, which stage 8 writes for every shortcut). You chose the back-grip approach, and it works on the Deck.

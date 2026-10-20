@@ -486,3 +486,66 @@ fn the_summary_line_reads_well() {
     );
     assert_eq!(r.sync().summary(), "Synced 3 files. Nothing changed.");
 }
+
+/// Puts a downloaded copy on the Deck, as a finished download would.
+fn on_deck(r: &Rig, rom: &romshelf_core::model::Rom, bytes: &[u8]) -> std::path::PathBuf {
+    let path = r.paths.rom_file(rom.system, &rom.file_name).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, bytes).unwrap();
+    let mut on = rom.clone();
+    on.location = romshelf_core::model::LocationState::OnDeck;
+    r.db.upsert_rom(&on).unwrap();
+    path
+}
+
+#[test]
+fn a_rename_in_drive_renames_the_copy_on_the_deck() {
+    let r = Rig::new();
+    let id = r.upload(System::Gba, "Kirby.gba");
+    r.sync();
+    let rom = r.by_file(&id);
+    let old = on_deck(&r, &rom, b"tiny dummy");
+    r.drive.rename(&id, "Kirby (USA).gba").unwrap();
+    r.sync();
+    let after = r.by_file(&id);
+    let new = r.paths.rom_file(System::Gba, "Kirby (USA).gba").unwrap();
+    assert!(!old.exists(), "the old copy is gone");
+    assert_eq!(std::fs::read(&new).unwrap(), b"tiny dummy");
+    assert_eq!(after.location, romshelf_core::model::LocationState::OnDeck);
+    assert!(
+        romshelf_core::storage::file_matches(&r.paths, &after),
+        "no new download needed"
+    );
+}
+
+#[test]
+fn a_move_to_another_system_folder_moves_the_copy_too() {
+    let r = Rig::new();
+    let id = r.upload(System::Snes, "Pocket Kingdoms.gba");
+    r.sync();
+    let rom = r.by_file(&id);
+    let old = on_deck(&r, &rom, b"tiny dummy");
+    r.drive.move_to(&id, &r.folder(System::Gba)).unwrap();
+    r.sync();
+    assert!(!old.exists());
+    assert!(r
+        .paths
+        .rom_file(System::Gba, "Pocket Kingdoms.gba")
+        .unwrap()
+        .is_file());
+}
+
+#[test]
+fn a_rename_never_overwrites_a_file_already_there() {
+    let r = Rig::new();
+    let id = r.upload(System::Gba, "Kirby.gba");
+    r.sync();
+    let rom = r.by_file(&id);
+    let old = on_deck(&r, &rom, b"tiny dummy");
+    let taken = r.paths.rom_file(System::Gba, "Kirby (USA).gba").unwrap();
+    std::fs::write(&taken, b"someone else's file").unwrap();
+    r.drive.rename(&id, "Kirby (USA).gba").unwrap();
+    r.sync();
+    assert_eq!(std::fs::read(&taken).unwrap(), b"someone else's file");
+    assert!(old.exists(), "left where it was");
+}

@@ -759,3 +759,99 @@ button:focus {
 .controls-lists .folder-list {
   max-height: none;
 }
+
+/* Steam shortcut screen (UI guide section 5.5). */
+.shortcut-body {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 24px;
+  align-items: start;
+}
+.shortcut-main {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.text-input {
+  min-height: var(--target-min);
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-row);
+  background: var(--raised);
+  color: inherit;
+  font: inherit;
+}
+.text-input:focus {
+  outline: 2px solid var(--accent);
+}
+.art-slots {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.art-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-row);
+  background: var(--raised);
+  text-align: left;
+}
+.art-slot img {
+  display: block;
+  border-radius: 4px;
+  object-fit: cover;
+}
+.art-capsule img { width: 72px; height: 108px; }
+.art-wide_capsule img { width: 150px; height: 70px; }
+.art-hero img { width: 186px; height: 60px; }
+.art-icon img { width: 48px; height: 48px; }
+.art-logo { min-width: 120px; min-height: 60px; }
+.art-slot.missing {
+  border-style: dashed;
+}
+.art-slot.selected,
+.art-slot:focus {
+  outline: 2px solid var(--accent);
+}
+.well {
+  display: block;
+  padding: 8px 10px;
+  border-radius: var(--radius-row);
+  background: var(--bg);
+  font-size: 13px;
+  word-break: break-all;
+}
+.shortcut-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.library-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.library-preview img {
+  width: 120px;
+  height: 180px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+.check {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 14px;
+}
+.check input:focus {
+  outline: 2px solid var(--accent);
+}
