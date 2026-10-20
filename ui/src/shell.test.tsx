@@ -14,8 +14,8 @@ describe("shell", () => {
     render(<App />);
     await act(async () => {});
     expect(screen.getByText("Romshelf")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Open gamepad test" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Quit Romshelf" })).toBeTruthy();
+    // Settings and Transfers are in the top band; quitting moved to Settings.
+    expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
     expect(screen.getByLabelText("Button hints")).toBeTruthy();
   });
 

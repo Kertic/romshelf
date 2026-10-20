@@ -664,3 +664,86 @@ export async function onSteamChanged(handler: (changes: number) => void): Promis
   if (!inTauri()) return () => {};
   return listen<number>("steam-changed", (e) => handler(e.payload));
 }
+
+export interface StorageChoice {
+  path: string;
+  /** "This Deck" or "SD card (FF8S5)". */
+  label: string;
+  free: number | null;
+  current: boolean;
+}
+
+export interface SettingsView {
+  account: string | null;
+  drive_folder: string | null;
+  storage_root: string;
+  storage_available: boolean;
+  storage_free: number | null;
+  storage_choices: StorageChoice[];
+  save_versions: number;
+  auto_add: boolean;
+  version: string;
+  update_ready: string | null;
+}
+
+export async function settingsView(): Promise<SettingsView> {
+  if (!inTauri()) {
+    return {
+      account: "player@example.com",
+      drive_folder: "My Drive / Emulation",
+      storage_root: "/home/deck/Romshelf",
+      storage_available: true,
+      storage_free: 40 * 1024 ** 3,
+      storage_choices: [
+        { path: "/home/deck/Romshelf", label: "This Deck", free: 40 * 1024 ** 3, current: true },
+        { path: "/run/media/deck/SD/Romshelf", label: "SD card (SD)", free: 200 * 1024 ** 3, current: false },
+      ],
+      save_versions: 10,
+      auto_add: false,
+      version: "dev",
+      update_ready: null,
+    };
+  }
+  return invoke<SettingsView>("settings_view");
+}
+
+export async function setSaveVersions(count: number): Promise<void> {
+  if (inTauri()) await invoke("set_save_versions", { count });
+}
+
+export async function signOut(): Promise<void> {
+  if (inTauri()) await invoke("sign_out");
+}
+
+/** Moves downloaded ROMs to another folder; Romshelf restarts when it's done. */
+export async function changeStorage(path: string): Promise<void> {
+  if (inTauri()) await invoke("change_storage", { path });
+}
+
+export async function checkForUpdates(): Promise<void> {
+  if (inTauri()) await invoke("check_for_updates");
+}
+
+export async function diagnostics(): Promise<string> {
+  if (!inTauri()) return "Romshelf dev\n(browser preview)\n";
+  return invoke<string>("diagnostics");
+}
+
+export interface TransferRow {
+  rom_id: string;
+  name: string;
+  kind: "download" | "backup";
+  state: "queued" | "running" | "waiting";
+  size: number;
+  message: string | null;
+}
+
+export async function transfers(): Promise<TransferRow[]> {
+  if (!inTauri()) return [];
+  return invoke<TransferRow[]>("transfers");
+}
+
+/** Asks Steam to show its on-screen keyboard. */
+export async function openSteamKeyboard(): Promise<void> {
+  if (inTauri()) await invoke("open_steam_keyboard");
+}

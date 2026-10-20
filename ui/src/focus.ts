@@ -4,8 +4,19 @@ export type Direction = "up" | "down" | "left" | "right";
 
 const FOCUSABLE = "[data-focusable]:not([disabled])";
 
+/** Focusable elements that can be reached: not behind a dialog (inert or aria-hidden) or hidden. */
 export function focusables(root: ParentNode = document): HTMLElement[] {
-  return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)];
+  return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(reachable);
+}
+
+/** Not inside something inert, aria-hidden or hidden. */
+export function reachable(el: HTMLElement): boolean {
+  return !el.closest("[inert], [aria-hidden='true'], [hidden]");
+}
+
+/** The region an element belongs to (`data-region`): top band, grid, drawer. */
+function region(el: Element): Element | null {
+  return el.closest("[data-region]");
 }
 
 function centre(r: DOMRect) {
@@ -38,17 +49,42 @@ export function moveFocus(dir: Direction, root: ParentNode = document): boolean 
   if (all.length === 0) return false;
   const current = document.activeElement as HTMLElement | null;
   if (!current || !all.includes(current)) {
-    all[0].focus();
+    restoreFocus(root);
     return true;
   }
   const others = all.filter((el) => el !== current);
-  const i = pick(
-    current.getBoundingClientRect(),
-    others.map((el) => el.getBoundingClientRect()),
-    dir,
-  );
-  if (i < 0) return false;
-  others[i].focus();
-  others[i].scrollIntoView?.({ block: "nearest" });
+  // The nearest in the pressed direction within the current region, then across regions.
+  const home = region(current);
+  const near = home ? others.filter((el) => region(el) === home) : [];
+  for (const pool of [near, others]) {
+    const i = pick(
+      current.getBoundingClientRect(),
+      pool.map((el) => el.getBoundingClientRect()),
+      dir,
+    );
+    if (i >= 0) {
+      pool[i]!.focus();
+      pool[i]!.scrollIntoView?.({ block: "nearest" });
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Puts focus somewhere sensible when it has been lost (the focused element went away with a
+ * list change, or a dialog closed): the screen's main action, else the first focusable.
+ */
+export function restoreFocus(root: ParentNode = document): boolean {
+  const all = focusables(root);
+  const target = all.find((el) => el.hasAttribute("data-autofocus")) ?? all[0];
+  if (!target) return false;
+  target.focus();
   return true;
+}
+
+/** True when focus is nowhere useful: on the page itself, or on something no longer reachable. */
+export function focusLost(): boolean {
+  const el = document.activeElement as HTMLElement | null;
+  return !el || el === document.body || !el.isConnected || !reachable(el);
 }

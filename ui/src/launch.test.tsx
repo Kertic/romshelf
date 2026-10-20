@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LibraryEntry } from "./api";
 import { LaunchWindow } from "./LaunchWindow";
-import { RomDialog } from "./RomActions";
+import { RomPage } from "./RomActions";
 
 afterEach(cleanup);
 
@@ -84,24 +84,24 @@ describe("Play", () => {
 
   it("is the first action for a downloaded game with its emulator ready", () => {
     const onPlay = vi.fn();
-    render(<RomDialog {...base} entry={ENTRY} onPlay={onPlay} />);
-    const buttons = screen.getAllByRole("button").map((b) => b.textContent);
-    expect(buttons[0]).toBe("Play");
+    render(<RomPage {...base} entry={ENTRY} onPlay={onPlay} />);
+    // The main action takes focus first.
+    expect(screen.getByRole("button", { name: "Play" }).hasAttribute("data-autofocus")).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Play" }));
     expect(onPlay).toHaveBeenCalled();
   });
 
   it("isn't offered before the game is downloaded or its emulator set up", () => {
-    render(<RomDialog {...base} entry={{ ...ENTRY, rom: { ...ENTRY.rom, location: { state: "drive_only" } } }} />);
+    render(<RomPage {...base} entry={{ ...ENTRY, rom: { ...ENTRY.rom, location: { state: "drive_only" } } }} />);
     expect(screen.queryByRole("button", { name: "Play" })).toBeNull();
     cleanup();
-    render(<RomDialog {...base} entry={{ ...ENTRY, emulator_ready: false }} />);
+    render(<RomPage {...base} entry={{ ...ENTRY, emulator_ready: false }} />);
     expect(screen.queryByRole("button", { name: "Play" })).toBeNull();
   });
 
   it("shows the step while starting, and why it failed", () => {
     const { rerender } = render(
-      <RomDialog
+      <RomPage
         {...base}
         entry={ENTRY}
         launch={{ romId: ENTRY.rom.id, label: "Playing in Dolphin", percent: null, running: true, error: null }}
@@ -110,7 +110,7 @@ describe("Play", () => {
     const busy = screen.getByRole("button", { name: "Playing in Dolphin…" }) as HTMLButtonElement;
     expect(busy.disabled).toBe(true);
     rerender(
-      <RomDialog
+      <RomPage
         {...base}
         entry={ENTRY}
         launch={{ romId: ENTRY.rom.id, label: null, percent: null, running: false, error: "Dolphin can't run it." }}
