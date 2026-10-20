@@ -115,6 +115,10 @@ pub struct FakeProcessRunner {
     existed: Mutex<Vec<bool>>,
     /// Runs while each program "runs", as the emulator would (writing a save, say).
     during: Mutex<Option<RunHook>>,
+    /// Set by `request_stop`: the running "program" ends early, as a stopped one would.
+    stop: std::sync::atomic::AtomicBool,
+    /// How many stops were asked for.
+    pub stops: std::sync::atomic::AtomicUsize,
 }
 
 type RunHook = Box<dyn FnMut(&CommandSpec) + Send>;
@@ -144,6 +148,11 @@ impl FakeProcessRunner {
 }
 
 impl ProcessRunner for FakeProcessRunner {
+    fn request_stop(&self) {
+        self.stops.fetch_add(1, Ordering::SeqCst);
+        self.stop.store(true, Ordering::SeqCst);
+    }
+
     fn run_and_wait(&self, cmd: &CommandSpec) -> Result<i32> {
         self.runs.lock().unwrap().push(cmd.clone());
         if let Some(p) = self.watched.lock().unwrap().as_ref() {
@@ -158,8 +167,14 @@ impl ProcessRunner for FakeProcessRunner {
             .unwrap()
             .pop_front()
             .unwrap_or((0, Duration::ZERO));
-        if !delay.is_zero() {
-            std::thread::sleep(delay);
+        self.stop.store(false, Ordering::SeqCst);
+        let until = std::time::Instant::now() + delay;
+        while std::time::Instant::now() < until {
+            if self.stop.load(Ordering::SeqCst) {
+                // Ended by the stop, as SIGTERM would.
+                return Ok(143);
+            }
+            std::thread::sleep(Duration::from_millis(10).min(delay));
         }
         Ok(code)
     }
@@ -333,6 +348,24 @@ mod tests {
         assert_eq!(runner.run_and_wait(&cmd).unwrap(), 0);
         assert_eq!(runner.run_and_wait(&cmd).unwrap(), 0);
         assert_eq!(runner.runs().len(), 3);
+    }
+
+    #[test]
+    fn a_stop_ends_a_running_program_early() {
+        let runner = std::sync::Arc::new(FakeProcessRunner::default());
+        runner.push_exit(0, Duration::from_secs(5));
+        let r = std::sync::Arc::clone(&runner);
+        let t = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            r.request_stop();
+        });
+        let started = std::time::Instant::now();
+        assert_eq!(
+            runner.run_and_wait(&CommandSpec::new("emu", &[])).unwrap(),
+            143
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
+        t.join().unwrap();
     }
 
     #[test]

@@ -21,6 +21,14 @@ impl RetroArch {
             .join(format!("{}.cfg", rom.id))
     }
 
+    /// This game's controls, appended last.
+    pub fn controls_config(paths: &Paths, rom: &Rom) -> PathBuf {
+        RetroArch
+            .session_dir(paths)
+            .join("games")
+            .join(format!("{}.controls.cfg", rom.id))
+    }
+
     /// A core's file in the RetroArch Flatpak's cores folder.
     pub fn core_file(paths: &Paths, core: &str) -> PathBuf {
         paths
@@ -146,7 +154,7 @@ impl EmulatorAdapter for RetroArch {
     }
 
     /// `flatpak run --filesystem=<ROMs>:ro org.libretro.RetroArch -L <core> --appendconfig
-    /// <Romshelf's cfg>|<the game's cfg> -f <rom>`: full screen, the game's own save folders,
+    /// <Romshelf's cfg>|<the game's cfg>|<its controls> -f <rom>`: full screen, the game's own save folders,
     /// the user's own settings otherwise. RetroArch reads `|`-separated append configs in order.
     fn launch_command(
         &self,
@@ -158,9 +166,10 @@ impl EmulatorAdapter for RetroArch {
             crate::Error::Invalid(format!("RetroArch has no core for {}.", rom.system.label()))
         })?;
         let configs = format!(
-            "{}|{}",
+            "{}|{}|{}",
             RetroArch::append_config(paths).display(),
-            RetroArch::game_config(paths, rom).display()
+            RetroArch::game_config(paths, rom).display(),
+            RetroArch::controls_config(paths, rom).display()
         );
         Ok(CommandSpec::new(
             "flatpak",
@@ -194,8 +203,12 @@ impl EmulatorAdapter for RetroArch {
         true
     }
 
-    fn write_controls(&self, _layout: &ControlLayout, _rom: &Rom) -> Result<()> {
-        Ok(())
+    /// The game's controls in their own appended config, `games/<rom-id>.controls.cfg`.
+    fn write_controls(&self, layout: &ControlLayout, rom: &Rom, paths: &Paths) -> Result<()> {
+        write_if_changed(
+            &RetroArch::controls_config(paths, rom),
+            &crate::controls::retroarch::config(rom.system, layout),
+        )
     }
 
     fn declared_actions(&self) -> Vec<DeclaredAction> {

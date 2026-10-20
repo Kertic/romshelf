@@ -1,5 +1,116 @@
 # Progress
 
+## Stage 7: controls (branch `stage-07-controls`, on top of stage 6)
+
+Status: **on-Deck checks passed 2026-10-20**, except the back grips in Twilight Princess, moved to stage 8 at your request (its shortcut needs Romshelf's Steam Input layout, which stage 8 writes for every shortcut). You chose the back-grip approach, and it works on the Deck.
+
+### Back-grip spike (2026-10-19, on the Deck over SSH)
+
+- Steam keeps the controller layout chosen for each game in `~/.steam/steam/steamapps/common/Steam Controller Configs/<account id>/config/configset_controller_neptune.vdf`. Non-Steam shortcuts are keyed by their name in lower case (`"kirby's return to dream land"`), and each entry names a `template` file.
+- EmuDeck (through Steam ROM Manager) used exactly this to give 21 shortcuts its layout (`"template" "emudeck_frontend_controller_steamdeck.vdf"`). That template file is no longer anywhere on the Deck, so Steam is presumably falling back to its own default for them.
+- Romshelf's two test shortcuts ("test", "kirb") have no entry, so they use Steam's default gamepad layout.
+- So a layout **can** be supplied as a file and applied to shortcuts without the user setting each one up by hand. Writing the entries would happen alongside the `shortcuts.vdf` write in stage 8, with Steam closed, plus a template file of Romshelf's own.
+- **Confirmed end to end (2026-10-19):**
+  - Steam keys a shortcut's entry by its real name in lower case with the dot dropped: "romshelf.AppImage kirb" became `"romshelfappimage kirb"`. An entry under "kirb" was ignored.
+  - With `"autosave" "1"` and Romshelf's layout file at `<that name>/controller_neptune.vdf` (written with Steam shut down), Steam showed the layout "Romshelf" with L4 F9, R4 F10, L5 F11, R5 F12.
+  - In Kirby, L4 toggled fast forward and L5/R5 saved and loaded a state, through the RetroArch controls Romshelf wrote.
+- The layout came from Steam's own gamepad template with the four grips bound to keys. In Steam's files, `button_back_left_upper` is L4 and `button_back_left` is L5.
+- **For stage 8:** write the layout and the `configset_controller_neptune.vdf` entry for each shortcut along with `shortcuts.vdf`, while Steam is closed. Work out Steam's exact rule for turning a name into the entry key. Seen so far: the dot is dropped; spaces, parentheses, `!` and apostrophes are kept.
+- The spike's backup of Steam's files is in `~/romshelf-spike-backup/` on the Deck.
+
+### Built
+
+- **The model** (`controls/model.rs`):
+  - Inputs: the D-pad, both sticks, A/B/X/Y, L1âR3, Menu, View and the four back grips.
+  - Targets: each system's buttons and sticks, plus each emulator's hotkeys (fast forward, rewind (RetroArch only), save state, load state, open menu (RetroArch only), and quit game).
+  - Each layout belongs to a scope: an emulator for one system (`retroarch/gba`), since RetroArch's systems have different buttons.
+  - Validation:
+    - Directions only from the D-pad or a stick.
+    - Binding one input twice is rejected.
+    - Two inputs may share a target.
+- **Merge** (`controls/merge.rs`): merge, difference and promote.
+- **Built-in defaults** (`controls/defaults.rs`):
+  - Buttons:
+    - GBA follows the reference screen (A â A, B â B).
+    - SNES and GameCube go by position. GameCube matches EmuDeck's layout: Deck X â B, Deck B â X, R1 â Z, L2/R2 â L/R.
+    - N64: right stick â C buttons, L2 â Z.
+  - Hotkeys on the grips: L4 fast forward, R4 rewind (RetroArch), L5 save state, R5 load state.
+  - Quit has no default button. Steam button â Exit game ends any game, and stage 6 backs its save up on the next run.
+- **Storage** (`controls/store.rs`):
+  - Defaults and game differences are in `control_profiles`. A game is stored only while it has differences.
+  - Each change is copied to Drive's `.romshelf/controls/<emulator>-<system>.json`, and a sync takes newer copies from there. A newer change on this Deck wins over an older Drive copy.
+- **Writers:**
+  - **RetroArch** (`controls/retroarch.rs`): `games/<rom-id>.controls.cfg`, appended last (`--appendconfig "romshelf.cfg|game.cfg|controls.cfg"`). It contains:
+    - Every RetroPad bind for player 1. Button numbers are Steam's virtual gamepad under SDL2, from RetroArch's own autoconfig.
+    - Grips as F9âF12.
+    - Every hotkey: unbound unless the layout binds it. There's no hotkey-enable button, and autodetect is off, so nothing falls back to EmuDeck's hotkeys (which need View held, and would fire alone otherwise).
+  - **Dolphin** (`controls/dolphin.rs`):
+    - `[GCPad1]` in Romshelf's copy of `GCPadNew.ini`, with the other pads kept.
+    - A fresh `Hotkeys.ini`. Grips are named on the keyboard device (`XInput2/0/Virtual core pointer:F9`).
+    - Both are rewritten before each launch.
+- **Pipeline:** the Controls step writes the game's merged layout before every launch.
+- **Quitting, in every game and every state** (you asked for this on 2026-10-19):
+  - Hold View and Menu for a second. Romshelf reads the controller itself while a game runs (from a Steam shortcut or from Play), so it doesn't depend on the emulator, its focus or the game's layout.
+  - It stops the emulator the same clean way as Steam's Exit game (ask, then widen, then force), so the emulator writes its saves, and Romshelf backs them up as usual.
+  - In the launch window (downloading or setting up), the same combination goes back to Steam.
+  - Tested: the hold rule (once per hold, a second, starting over when let go); a requested stop ending a real program (Linux) and a fake one; and a stale request not stopping the next program.
+  - Found on the Deck (2026-10-20): while Dolphin runs, it opens the Deck's controller directly (`/dev/hidraw3`), and button presses stop arriving on Steam's virtual pad (`event10` carried only stick movement in a 5-minute recording). Romshelf watches every pad, so it still sees View + Menu, and Twilight Princess closed. Your earlier tries in Dolphin didn't close the game, and the cause isn't known yet, so each quit request is now logged in `launch.log` with the pad it came from.
+  - Nothing holds the pad exclusively while Dolphin runs (checked with `EVIOCGRAB`).
+- **Setup's step two** stores the built-in layout as the default for each of the emulator's systems, unless one is already there.
+- **Interface:**
+  - **The Controls editor** (guide 5.4):
+    - The scope switch: "{emulator} default" or "{game} only", switched with L1/R1.
+    - Game buttons and Emulator hotkeys lists, tagged "Default" or "This game".
+    - Rebind: A, then press the new input. A stick press binds the stick; a grip arrives as its key. A tap of B binds B; holding B for a second cancels.
+    - Binding onto a used input asks to swap.
+    - An unbound row offers the targets it could do.
+    - X clears a row, and Y returns it to the default.
+    - Side panel: an explanation (including that Steam's own layout sits above), the custom count, Reset, "Make this the {emulator} default" (confirms with how many games change), and Save.
+    - Leaving unsaved asks: Save, Discard or Keep editing.
+  - **The game's dialog:** a Controls group ("RetroArch default" or "Custom for this game Â· 2 buttons differ from default"), with **Edit controls** and **Reset**.
+  - **The Emulators screen:** a "{system} controls" button per system once the emulator is installed.
+
+### Tests
+
+- 23 Rust tests:
+  - The merge rules.
+  - Difference-then-merge over 500 generated layouts.
+  - Promote and reset.
+  - Validation.
+  - Every built-in default complete and valid.
+  - Storage, and promote naming the games it will change.
+  - The Drive mirror on a second device.
+  - Setup storing defaults and keeping an existing one.
+  - Golden files:
+    - RetroArch: GBA default, GBA with differences, N64.
+    - Dolphin: pad and hotkeys.
+  - Every RetroArch setting is one RetroArch 1.19.1 itself writes (fixture from the Deck), and the button numbers match its Steam Virtual Gamepad autoconfig.
+  - The Dolphin default matches the `GCPadNew.ini` Dolphin wrote on the Deck.
+- 13 UI tests: the rules, tags, the rebind flow by simulated presses (swap, B tap and hold, sticks, grips), X/Y/L1/R1, the target picker, promote, and leaving unsaved.
+
+### Confirm (on the Deck)
+
+- Dolphin sees the grip keys on `XInput2/0/Virtual core pointer` under Game Mode.
+- Mupen64Plus-Next reads the RetroPad as assumed (B = N64 A, Y = N64 B, L2 = Z, right stick = C buttons). There's no N64 game on the Deck yet.
+
+### Deferred
+
+- **Writing Romshelf's Steam Input layout to each shortcut** is stage 8's: that's where shortcuts are written, with Steam closed. The spike shows how.
+- **Quit as a layout binding:** the model maps one input to one target, so quit has no default button in the layout (it can still be bound to a free input in the editor). Romshelf's own View + Menu combination, below, covers every game instead.
+
+### On-Deck checklist
+
+- [x] The default layout works in Kirby (GBA) and Twilight Princess (GameCube) with no editing. Twilight Princess's buttons are as before (EmuDeck's positions).
+- [x] Swap A and B for Kirby only: swapped there, normal in another GBA game. (Only one GBA game so far: check Kirby swaps, then reset.)
+- [x] Bind fast forward for one game: it works in that game.
+- [x] Change the RetroArch GBA default: Kirby follows, except its overridden buttons.
+- [ ] (Moved to stage 8.) L4 fast forward works in Kirby (done in the spike) and in Twilight Princess. 2026-10-19: works in Kirby. In Twilight Princess it fast-forwarded only sometimes, but its shortcut ("test") doesn't have Romshelf's Steam Input layout yet, so L4 sent nothing; that wasn't Romshelf's binding. To retest with the layout on that shortcut too.
+- [x] Hold View + Menu for a second in Kirby, and in Twilight Princess: the game closes, back to Steam, and its save is backed up. 2026-10-20: works in Kirby from the shortcut and from Romshelf, and closed Twilight Princess from its shortcut.
+
+Checks 1–4 passed on the Deck, 2026-10-19 (your report).
+
+Twilight Princess saves, checked 2026-10-19 after you reported them missing: Dolphin wrote `01-GZ2E-gczelda2.gci` into the game's own folder at 23:53 after an in-game save, and it reached Drive at 23:54. So the per-game memory card works. Earlier sessions had no new save on disk because none was made in game. That means stage 6's check 2 backed up the save moved there at 18:24, not a new one.
+
 ## Stage 6: saves and save states (branch `stage-06-saves`, on top of stage 5)
 
 Status: **on-Deck checks passed 2026-10-19.**
@@ -38,7 +149,7 @@ Status: **on-Deck checks passed 2026-10-19.**
   - Slots made on another machine are downloaded before a launch.
 - **Setup's "Link saves" step** now does real work: it creates `saves/<system>/` and `states/<system>/` in Drive for each of the emulator's systems.
 - **Interface:**
-  - The game's dialog has a **Save backup** group: "Backed up Today 3:16 PM from steamdeck", "Not backed up yet", or "Waiting to back up…", with **Back up save data**, **Restore save from Drive…** and **Save states…** (RetroArch games).
+  - The game's dialog has a **Save backup** group: "Backed up Today 3:16 PM from steamdeck", "Not backed up yet", or "Waiting to back upÃ¢ÂÂ¦", with **Back up save data**, **Restore save from DriveÃ¢ÂÂ¦** and **Save statesÃ¢ÂÂ¦** (RetroArch games).
   - **Restore a save** lists date, device and size, with Cancel focused first and "Your current save is backed up first."
   - The conflict dialog appears both in the launch window and when you press Play.
   - Toasts: "Backed up Kirby".
@@ -88,10 +199,10 @@ Also 2 unit tests (UTC folder names, the save hash), 13 UI tests (time wording, 
 
 - [x] Play Kirby, save in game, quit with View + Menu: the game's dialog shows a new "Backed up" time, and `Emulation/saves/gba/<rom-id>/<time>/` exists in Drive with the `.srm` and `manifest.json`.
 - [x] Play Twilight Princess: your existing save is still there (moved into Romshelf's per-game card folder). Save, quit: a backup with `01-GZ2E-gczelda2.gci` appears in Drive.
-- [x] Delete the local save (`~/.var/app/org.libretro.RetroArch/config/romshelf/saves/<rom-id>/`), then **Restore save from Drive…** and pick the newest. Launch: progress is intact.
+- [x] Delete the local save (`~/.var/app/org.libretro.RetroArch/config/romshelf/saves/<rom-id>/`), then **Restore save from DriveÃ¢ÂÂ¦** and pick the newest. Launch: progress is intact.
 - [x] Restore an older version: the game shows the older progress, and the newer version is still in the list.
-- [x] Airplane mode: play and quit. The dialog says "Waiting to back up". Reconnect and open Romshelf (or sync): the backup uploads and a "Backed up …" toast shows.
-- [x] Quit a game with Steam button → **Exit game**: the next time Romshelf opens, the save is backed up.
+- [x] Airplane mode: play and quit. The dialog says "Waiting to back up". Reconnect and open Romshelf (or sync): the backup uploads and a "Backed up Ã¢ÂÂ¦" toast shows.
+- [x] Quit a game with Steam button Ã¢ÂÂ **Exit game**: the next time Romshelf opens, the save is backed up.
 
 All six passed on the Deck, 2026-10-19 (your report).
 
@@ -102,7 +213,7 @@ Status: **on-Deck checks passed 2026-10-19.**
 ### Built
 
 - **`launch/mod.rs`, one pipeline** for every Steam shortcut (`romshelf launch --id <id>`, or `--rom gba/Kirby.gba`), the Play button and `romshelf doctor --id`:
-  1. Find the game. An unknown id is "Romshelf doesn't know a game called … Sync, then try again." (exit 2). A game gone from Drive, a system with no emulator, or a file the emulator can't run (the GameCube `.zip`) is a clear error, and nothing starts.
+  1. Find the game. An unknown id is "Romshelf doesn't know a game called Ã¢ÂÂ¦ Sync, then try again." (exit 2). A game gone from Drive, a system with no emulator, or a file the emulator can't run (the GameCube `.zip`) is a clear error, and nothing starts.
   2. Download it if it isn't on the Deck, with progress.
   3. Set up its emulator if Romshelf's setup hasn't run. A missing required BIOS stops here with what to add.
   4. Check saves, then 5. write controls: placeholders until stages 6 and 7.
@@ -112,7 +223,7 @@ Status: **on-Deck checks passed 2026-10-19.**
 - **Emulator commands:**
   - RetroArch: `flatpak run --filesystem=<storage root>:ro org.libretro.RetroArch -L <core file> --appendconfig <Romshelf's romshelf.cfg> -f <rom>`
   - Dolphin: `flatpak run --filesystem=<storage root>:ro org.DolphinEmu.dolphin-emu -u <Romshelf's user folder> -b -C Dolphin.Display.Fullscreen=True -e <rom>`, using options confirmed from Dolphin's `--help` on the Deck.
-  - `--filesystem=…:ro` gives the sandbox read access to wherever ROMs are kept (home or an SD card) for that run only.
+  - `--filesystem=Ã¢ÂÂ¦:ro` gives the sandbox read access to wherever ROMs are kept (home or an SD card) for that run only.
 - **Process runner:** waits for the emulator, so Steam's game tracking stays right. A stop signal to Romshelf (SIGTERM, SIGINT, SIGHUP, as when Steam ends the game) is passed on to the emulator, and Romshelf keeps waiting for it to exit. Its stderr still reaches the terminal, and the last 20 lines are kept for the log.
 - **`launch.lock`** holds Romshelf's process id while a game runs (the self-updater waits for it) and is removed afterwards.
 - **Launch log** at `~/.local/share/romshelf/logs/launch.log`: time, rom-id, emulator, duration and exit code per launch, plus the emulator's last lines when it failed.
@@ -136,7 +247,7 @@ Status: **on-Deck checks passed 2026-10-19.**
 - **The launch window hides while the game runs**, so the emulator has the screen; it shows again only if something fails.
 - **Saves are separate for now.** Games Romshelf starts save to Romshelf's own folders (Dolphin's user folder, RetroArch's `romshelf/saves`), not EmuDeck's on the SD card. So a save made through EmuDeck or ES-DE won't show in a game started from Romshelf, and the other way round. Stage 6 (save backup) decides how saves are kept and shared.
 - **Quitting a game comes from the emulator's settings.** Today that's EmuDeck's hotkeys in the copied settings (View + Menu exits Dolphin). Stage 7 (controls) should give every game one quit combination that doesn't depend on another tool's settings.
-- **Found on the Deck: passing a stop to a Flatpak emulator.** `flatpak run` becomes `bwrap`, which starts the sandbox (`bwrap → bwrap → dolphin-emu-wrapper → dolphin-emu`) and doesn't pass signals into it. So a stop sent to Romshelf's own child never reached Dolphin. Romshelf now sends SIGTERM to the programs at the end of its chain (the emulator), widens it to the whole chain after 10 s and forces it after 20 s. Tested on the Deck: Dolphin closed cleanly within a second ("A signal was received…"), and Romshelf exited 0. Also seen: ending an SSH session ends the programs it started but not Flatpak apps, which run in their own systemd scope. That only matters for testing over SSH.
+- **Found on the Deck: passing a stop to a Flatpak emulator.** `flatpak run` becomes `bwrap`, which starts the sandbox (`bwrap Ã¢ÂÂ bwrap Ã¢ÂÂ dolphin-emu-wrapper Ã¢ÂÂ dolphin-emu`) and doesn't pass signals into it. So a stop sent to Romshelf's own child never reached Dolphin. Romshelf now sends SIGTERM to the programs at the end of its chain (the emulator), widens it to the whole chain after 10 s and forces it after 20 s. Tested on the Deck: Dolphin closed cleanly within a second ("A signal was receivedÃ¢ÂÂ¦"), and Romshelf exited 0. Also seen: ending an SSH session ends the programs it started but not Flatpak apps, which run in their own systemd scope. That only matters for testing over SSH.
 - **`romshelf doctor` without `--id`** (the whole-setup check) is stage 10's.
 - **Play isn't offered before downloading.** The dialog's first action is **Download to Deck**, or **Set up {emulator}**, until the game can start straight away. A Steam shortcut still does everything in one go.
 
@@ -145,7 +256,7 @@ Status: **on-Deck checks passed 2026-10-19.**
 - [x] Play from the Library starts the game full screen; quitting returns to Romshelf. 2026-10-19: Twilight Princess in Dolphin, with your controls (copied settings); quit with View + Menu (EmuDeck's Exit hotkey, from the copied Hotkeys.ini). Log: `gamecube-2260f1ec dolphin 1051s exit 0`.
 - [x] From the Desktop Mode terminal, `~/Applications/romshelf.AppImage launch --id <id>` starts the same game (ids: `romshelf doctor --id <id>` explains one; your Twilight Princess is `gamecube-2260f1ec`). 2026-10-19: started Dolphin straight away with no window. Controls don't respond when started outside Steam: the copied Dolphin settings use the controller Steam creates for games it launches (`SDL/0/Steam Virtual Gamepad`). Expected; Steam shortcuts have it.
 - [x] Add a non-Steam shortcut with target `~/Applications/romshelf.AppImage` and launch options `launch --id <id>`; it starts the game from Game Mode and returns to Steam on quit. 2026-10-19: you confirmed it on the Deck (Twilight Princess, controls working).
-- [x] Launch a game that isn't downloaded from such a shortcut: the progress window appears, then the game. 2026-10-19: you confirmed it (Kirby, downloaded at 15:35 by the shortcut). Quitting with Steam button → Exit game left no launch log line: Steam ends Romshelf forcefully. Quitting in game with View + Menu (EmuDeck's RetroArch hotkey) logged `gba-8f031392 retroarch 53s exit 0`. So stage 6 can't rely on running after the game: it records an open session at start and backs up any session that wasn't closed the next time Romshelf runs.
+- [x] Launch a game that isn't downloaded from such a shortcut: the progress window appears, then the game. 2026-10-19: you confirmed it (Kirby, downloaded at 15:35 by the shortcut). Quitting with Steam button Ã¢ÂÂ Exit game left no launch log line: Steam ends Romshelf forcefully. Quitting in game with View + Menu (EmuDeck's RetroArch hotkey) logged `gba-8f031392 retroarch 53s exit 0`. So stage 6 can't rely on running after the game: it records an open session at start and backs up any session that wasn't closed the next time Romshelf runs.
 - [x] The Steam overlay and the Deck's quick-access menu work while the game runs. 2026-10-19: the Steam button menu works in game.
 
 ## Stage 4: emulator registry and setup (branch `stage-04-emulator-setup`, on top of stage 3)
@@ -156,7 +267,7 @@ Status: **passed on the Deck 2026-10-19** (you counted it as passed; the "needs 
 
 - **Registry:** SNES `snes9x`, GBA `mgba`, N64 `mupen64plus_next` in RetroArch; GameCube in Dolphin. `Registry::require` gives "Romshelf can't run PS2 games yet." for a system with no emulator.
 - **Detect:** `flatpak info <id>` counts an install for this user *or* system-wide, so an emulator EmuDeck installed is used rather than installed twice.
-- **Install:** `flatpak remote-add --user --if-not-exists flathub …`, then `flatpak install --user --noninteractive -y flathub <id>`, streaming Flatpak's output and reading the percentages for progress. A failure gives Flatpak's own message ("Couldn't install Dolphin: … Try again.") and a later attempt starts cleanly.
+- **Install:** `flatpak remote-add --user --if-not-exists flathub Ã¢ÂÂ¦`, then `flatpak install --user --noninteractive -y flathub <id>`, streaming Flatpak's output and reading the percentages for progress. A failure gives Flatpak's own message ("Couldn't install Dolphin: Ã¢ÂÂ¦ Try again.") and a later attempt starts cleanly.
 - **RetroArch cores:** each missing core is downloaded from `buildbot.libretro.com/nightly/linux/x86_64/latest/<core>_libretro.so.zip`, unzipped, checked to be an ELF file, and put in the Flatpak's cores folder. A core already there (yours or EmuDeck's) is left alone.
 - **Session folders, never your settings:**
   - RetroArch: `~/.var/app/org.libretro.RetroArch/config/romshelf/` with `saves/`, `states/`, `system/`, and `romshelf.cfg` pointing RetroArch at them. That file is meant for `--appendconfig` in stage 5. `retroarch.cfg` is never edited.
@@ -173,7 +284,7 @@ Status: **passed on the Deck 2026-10-19** (you counted it as passed; the "needs 
 
 ### Tests
 
-17 emulator tests: every recognized extension resolves to one emulator or "can't run … yet"; detecting installed and not installed (any installation); the exact install commands once, with progress 12 → 58 → 100; an installed emulator not installed again; an install failure with Flatpak's message, then a working retry; a missing core fetched and present ones left alone; a bad core download reported with nothing written; setup resuming at step two; the three statuses; session folders created while the user's `retroarch.cfg` and `Dolphin.ini` stay byte-identical; BIOS copied and missing ones named; different declared actions; listing with systems and status keeping the installed flag; nothing written to Drive; the simulated Flatpak. Plus the progress parser, `romshelf emulators` (list, set up, unknown name), CLI parsing, and 12 UI tests (Emulators screen rows, actions, progress, failure; the dialog's emulator line, functions, Set up first, setup progress and retry, unsupported system).
+17 emulator tests: every recognized extension resolves to one emulator or "can't run Ã¢ÂÂ¦ yet"; detecting installed and not installed (any installation); the exact install commands once, with progress 12 Ã¢ÂÂ 58 Ã¢ÂÂ 100; an installed emulator not installed again; an install failure with Flatpak's message, then a working retry; a missing core fetched and present ones left alone; a bad core download reported with nothing written; setup resuming at step two; the three statuses; session folders created while the user's `retroarch.cfg` and `Dolphin.ini` stay byte-identical; BIOS copied and missing ones named; different declared actions; listing with systems and status keeping the installed flag; nothing written to Drive; the simulated Flatpak. Plus the progress parser, `romshelf emulators` (list, set up, unknown name), CLI parsing, and 12 UI tests (Emulators screen rows, actions, progress, failure; the dialog's emulator line, functions, Set up first, setup progress and retry, unsupported system).
 
 ### Choices made
 
@@ -189,7 +300,7 @@ Status: **passed on the Deck 2026-10-19** (you counted it as passed; the "needs 
 - **Where the RetroArch Flatpak keeps cores: confirmed 2026-10-19.** On this Deck (EmuDeck), `libretro_directory = "~/.var/app/org.libretro.RetroArch/config/retroarch/cores"`, and snes9x, mgba and mupen64plus_next are already there (93 cores in all). EmuDeck points RetroArch's saves, states and BIOS at the SD card's `Emulation/` folder. Romshelf's append-config is only used for games Romshelf starts, so EmuDeck's setup is unaffected.
 - **Both emulators are installed** as user Flatpaks: `org.libretro.RetroArch` 1.19.1 and `org.DolphinEmu.dolphin-emu` 2407. The user has a `flathub` remote, and there's a system one too.
 - **Found and fixed on the Deck:** the first stage 4 build said both were "Not installed". Running from the AppImage, `flatpak` inherited the AppImage's `LD_LIBRARY_PATH` and failed with `symbol lookup error: /usr/lib/libmalcontent-0.so.0: undefined symbol: g_task_set_static_name`. The full list of variables was read from a running Romshelf. `process::host_command` now removes them, and the AppImage's folders from `XDG_DATA_DIRS`, for every host program: Flatpak, emulators and the browser.
-- **Dolphin's user folder option: confirmed 2026-10-19.** Dolphin 2407's `--help` (run with `QT_QPA_PLATFORM=offscreen`, since it needs a display otherwise) lists `-u USER, --user=USER  User folder path`, `-e <file>, --exec=<file>` and `-b, --batch` ("Run Dolphin without the user interface (Requires --exec…)"). These match what stage 5 will use. The Flatpak's command is `dolphin-emu-wrapper`.
+- **Dolphin's user folder option: confirmed 2026-10-19.** Dolphin 2407's `--help` (run with `QT_QPA_PLATFORM=offscreen`, since it needs a display otherwise) lists `-u USER, --user=USER  User folder path`, `-e <file>, --exec=<file>` and `-b, --batch` ("Run Dolphin without the user interface (Requires --execÃ¢ÂÂ¦)"). These match what stage 5 will use. The Flatpak's command is `dolphin-emu-wrapper`.
 - **After the fix:** `romshelf emulators` on the Deck shows both as "Setup incomplete": installed by EmuDeck, with Romshelf's setup not yet run. Correct.
 - That the buildbot's generic Linux cores load in the Flatpak RetroArch (they're what its own core updater downloads). Not needed on this Deck, since the cores are already present.
 
@@ -211,14 +322,14 @@ Status: **on-Deck checks passed 2026-10-19.**
   - Stream into `<file>.part` instead of memory, so GameCube images over 1 GB are fine. The HTTP seam has a streaming `send_to`, and the Drive trait has `download_to`.
   - Resume from the `.part` length with a `Range` request. The Google client retries only before the first byte arrives; after that the downloader resumes. A dropped connection is retried after 2 s, doubling to 30 s, 12 times in all (about four minutes).
   - Check size and the MD5 Drive reports, then rename into place. A mismatch discards the file and says so.
-  - Check free space first, with 256 MB headroom, and refuse with the shortfall named ("Free up 1.2 GB more…") before writing anything.
+  - Check free space first, with 256 MB headroom, and refuse with the shortfall named ("Free up 1.2 GB moreÃ¢ÂÂ¦") before writing anything.
   - The queue lives in `transfer_queue` (queued, running, paused, failed, done) and runs one download at a time. A download running when Romshelf closed resumes on the next start. Cancel stops the running one (removing its `.part`) or takes a waiting one off the queue.
   - Progress events (bytes, total, rate) at most four a second; the tile's percentage is kept in the database too.
-- **Locations on start** (`storage::reconcile`): an on-Deck ROM whose file is missing or the wrong size becomes "In Drive only", a matching file found on disk becomes "On Deck", and a download with nothing queued is cleared. If the storage root and its parent are both missing (the SD card is out), nothing is changed and the Library shows "The storage at … isn't available…"; downloads refuse with the same message.
+- **Locations on start** (`storage::reconcile`): an on-Deck ROM whose file is missing or the wrong size becomes "In Drive only", a matching file found on disk becomes "On Deck", and a download with nothing queued is cleared. If the storage root and its parent are both missing (the SD card is out), nothing is changed and the Library shows "The storage at Ã¢ÂÂ¦ isn't availableÃ¢ÂÂ¦"; downloads refuse with the same message.
 - **Remove from Deck** (`transfer::remove_from_deck`): deletes the local file and any `.part` to free space; the game stays in Drive and shows "In Drive only". A game that is downloading can't be removed until the download is cancelled. **There is no way to delete from Drive** (see choices).
 - **Commands:** `romshelf download <id>` (progress on stderr), `romshelf remove <id>`, `romshelf storage [--set <folder>]`.
 - **Interface:**
-  - A on a tile opens the game's actions: metadata in mono, "Download to Deck" / "Download again", a progress bar with percentage, rate and time left plus "Cancel download", "Remove from Deck…" (only for games on the Deck), and the last error.
+  - A on a tile opens the game's actions: metadata in mono, "Download to Deck" / "Download again", a progress bar with percentage, rate and time left plus "Cancel download", "Remove from DeckÃ¢ÂÂ¦" (only for games on the Deck), and the last error.
   - X on a tile that is only in Drive downloads it (hint shown in the footer). Tiles show live "Downloading 64%".
   - The remove dialog: "Remove {name} from this Deck?", how much space it frees, and that the game stays in Google Drive. Cancel is focused first.
   - B closes or goes back. The D-pad stays inside an open dialog, and focus returns to the tile afterwards.
@@ -257,14 +368,14 @@ Status: **on-Deck checks passed 2026-10-19.**
   - Files are matched by Drive file id: a rename keeps the rom-id and updates the name; a move between system folders keeps the rom-id and changes the system.
   - Trashed, deleted or moved-out files are marked `gone`, never deleted, so saves, controls and shortcut records stay. Restoring one brings back the same rom-id (on Deck if the local file is there).
   - Only real files directly in a system folder count: not sub-folders, Google Docs or Drive shortcuts.
-  - Rows are written only when something changed, and `.romshelf/index.json` (file id → rom-id and chosen name) only when it changed. The sync steps past its own index write, so the next sync with nothing new writes nothing.
+  - Rows are written only when something changed, and `.romshelf/index.json` (file id Ã¢ÂÂ rom-id and chosen name) only when it changed. The sync steps past its own index write, so the next sync with nothing new writes nothing.
   - A second device adopts ids and chosen names from `index.json`. An index from a newer Romshelf stops sync with "Please update Romshelf".
-- Display names: the stem with `(…)`/`[…]` tags removed and `_`/`-` as spaces, title-cased only when the stem was all lower case. A chosen name (`sync::set_display_name`) wins and follows renames; the interface to set one comes later.
+- Display names: the stem with `(Ã¢ÂÂ¦)`/`[Ã¢ÂÂ¦]` tags removed and `_`/`-` as spaces, title-cased only when the stem was all lower case. A chosen name (`sync::set_display_name`) wins and follows renames; the interface to set one comes later.
 - Database migration 2: `name_overrides`. Also `rom_by_drive_id`, save-backup rows (for the "saves untouched" test) and `total_changes`.
 - Google client: HTTP 400 (such as an expired change token) is now `Error::Invalid`, so sync falls back to a full scan.
 - `romshelf sync` prints one line, such as "Synced 12 files: 2 new, 1 not recognized."
-- Interface: the Library syncs when it opens, and when the sync line in the top band is selected. The sync line reads "Google Drive synced 2 min ago", "Syncing with Google Drive…", "Offline" or "Sync failed", with the reason shown above the grid.
-  - System tabs (All, SNES, GBA, N64, PS2, GameCube) change with L1/R1 (Page Up/Page Down on a keyboard). The header counts "{n} ROMs in Drive · {n} on Deck" for the tab.
+- Interface: the Library syncs when it opens, and when the sync line in the top band is selected. The sync line reads "Google Drive synced 2 min ago", "Syncing with Google DriveÃ¢ÂÂ¦", "Offline" or "Sync failed", with the reason shown above the grid.
+  - System tabs (All, SNES, GBA, N64, PS2, GameCube) change with L1/R1 (Page Up/Page Down on a keyboard). The header counts "{n} ROMs in Drive ÃÂ· {n} on Deck" for the tab.
   - Tiles show recognized files; a "Not recognized" group lists the rest with their folder.
   - A folder strip shows the Drive path, and an empty library offers "Sync now".
   - Focus goes to the first tile on arrival and on a tab change, and stays put when a sync reloads the library.
@@ -272,7 +383,7 @@ Status: **on-Deck checks passed 2026-10-19.**
 
 ### Tests
 
-21 sync tests: extension table (upper case too, `.txt` unrecognized, GameCube `.zip` unrecognized); 14 display-name cases; 500 files in one full scan; a second sync with no database or Drive writes; new upload; unrecognized files; only real files in system folders; rename; chosen name surviving a rename and being cleared; move between systems; trash and restore with save rows untouched; restore when the file is on the Deck; permanent delete and moving out; full scan marking missing files gone; second device adopting ids (including a moved file's) and names; index written only on change; rejected token; new Drive folder; id collision; newer index; summary wording. Plus Google 400 → invalid, `Connection::sync`, fake-mode sync, and 11 UI tests (tabs and L1/R1 wrap, counts, singular, sync wording and ages, tiles vs not recognized, tab filter, empty tab, Sync now, disabled while syncing, failure message).
+21 sync tests: extension table (upper case too, `.txt` unrecognized, GameCube `.zip` unrecognized); 14 display-name cases; 500 files in one full scan; a second sync with no database or Drive writes; new upload; unrecognized files; only real files in system folders; rename; chosen name surviving a rename and being cleared; move between systems; trash and restore with save rows untouched; restore when the file is on the Deck; permanent delete and moving out; full scan marking missing files gone; second device adopting ids (including a moved file's) and names; index written only on change; rejected token; new Drive folder; id collision; newer index; summary wording. Plus Google 400 Ã¢ÂÂ invalid, `Connection::sync`, fake-mode sync, and 11 UI tests (tabs and L1/R1 wrap, counts, singular, sync wording and ages, tiles vs not recognized, tab filter, empty tab, Sync now, disabled while syncing, failure message).
 
 ### Choices made (not covered by the kit)
 
@@ -312,7 +423,7 @@ Only stage 10's step 3 (self-update) and step 9 (release workflow), brought forw
 
 ### Tests
 
-17 updater tests (18 on Linux): newer release installed with the previous kept and the file executable; same and older ignored with no download; bad checksum; forged signature rejected before the AppImage is fetched; a signed manifest replayed under a newer tag; a non-AppImage download; an interrupted download leaves the current version and the check is retried next start; once a day unless forced; skipped while a launch runs; a stale lock from a crashed launch ignored (Linux); rollback restores the old file and skips the bad version but installs a later one; rollback with nothing kept; token sent; private repository without a token explains `--set-token`; release missing a file; no key → off; an OpenSSL-made signature (as CI makes them) verifies. Plus CLI parsing and four `romshelf update` command tests, and two UI tests for the notice.
+17 updater tests (18 on Linux): newer release installed with the previous kept and the file executable; same and older ignored with no download; bad checksum; forged signature rejected before the AppImage is fetched; a signed manifest replayed under a newer tag; a non-AppImage download; an interrupted download leaves the current version and the check is retried next start; once a day unless forced; skipped while a launch runs; a stale lock from a crashed launch ignored (Linux); rollback restores the old file and skips the bad version but installs a later one; rollback with nothing kept; token sent; private repository without a token explains `--set-token`; release missing a file; no key Ã¢ÂÂ off; an OpenSSL-made signature (as CI makes them) verifies. Plus CLI parsing and four `romshelf update` command tests, and two UI tests for the notice.
 
 ### Choices made
 
@@ -347,19 +458,19 @@ Status: **on-Deck checks passed 2026-10-18, except the weekly re-sign-in (due ab
 
 - `http.rs`: an `HttpTransport` seam (`ReqwestTransport`, rustls) under the Google client so its retry and token logic is tested with `FakeHttp`.
 - `auth.rs`: client JSON parsing ("Desktop app" only), PKCE S256, consent URL (`drive` scope, offline, `prompt=consent`), one-shot loopback listener on `127.0.0.1:<random>` that checks `state`, ignores stray requests such as `/favicon.ico`, times out and can be cancelled; code exchange (refuses a grant without the Drive scope), refresh ahead of expiry and after a 401 (once), `invalid_grant` signs out with "Sign in again", logout revokes (best effort). `open_browser` uses `xdg-open` with the AppImage's library variables removed.
-- `drive/google.rs`: `DriveClient` over Drive v3: about, list (paged, trash excluded, query escaped), get, create folder, multipart create, media update, rename, move, trash (never delete), ranged download (416 at the end → empty), start page token, paged change feed. Up to 5 attempts with exponential backoff on 429, 5xx, rate-limit 403s and network errors; other errors surface Google's message.
+- `drive/google.rs`: `DriveClient` over Drive v3: about, list (paged, trash excluded, query escaped), get, create folder, multipart create, media update, rename, move, trash (never delete), ranged download (416 at the end Ã¢ÂÂ empty), start page token, paged change feed. Up to 5 attempts with exponential backoff on 429, 5xx, rate-limit 403s and network errors; other errors surface Google's message.
 - `drive/scaffold.rs`: `Emulation/{roms,saves,states,bios,.romshelf}` plus `roms/<system>` and `bios/<system>` under any parent. Lookup is parent id + name (folders only), one listing per parent, idempotent; `.romshelf/settings.json` (schema 1) written or updated in place; a newer schema stops setup with "Please update Romshelf" and is left untouched.
 - `settings.rs`: local `~/.config/romshelf/settings.json` (account, Drive location, folder ids), atomic writes, newer schema refused.
 - `tokens.rs`: `KeyringTokenStore` (Secret Service on Linux) behind `FallbackTokenStore`, which falls back silently to the 0600 `FileTokenStore`.
 - `connection.rs`: what the CLI and UI share: status, set client (a new client id signs out), login (records the account; a different account forgets the old folder), logout (keeps the folder), folder listing, setup.
 - CLI: `auth set-client --file <json>` or `--client-id` (secret prompted), `auth login` (prints the address if no browser opens), `auth logout`, `auth status` (exit 0 when signed in; it also counts the files in each `roms/<system>/` so the scope check can be done before stage 2).
-- UI: first run per guide §6: welcome, sign in (waiting, cancel, "Can't see a browser?", Desktop Mode steps, set-client instructions when no client is stored), folder browser (A enters, B goes up, path in mono, note when an `Emulation` folder already exists), progress, done with the tree. The library's empty state shows the chosen folder.
+- UI: first run per guide ÃÂ§6: welcome, sign in (waiting, cancel, "Can't see a browser?", Desktop Mode steps, set-client instructions when no client is stored), folder browser (A enters, B goes up, path in mono, note when an `Emulation` folder already exists), progress, done with the tree. The library's empty state shows the chosen folder.
 - `ROMSHELF_FAKE=1` starts signed in on a fake Drive; add `ROMSHELF_FAKE_FIRST_RUN=1` to walk the first run against it. In a plain browser, `?first-run` previews it.
 - `docs/google-setup.md`: Cloud project, Drive API, consent screen, Testing (weekly sign-in, add yourself as a test user) or In production, Desktop client, `set-client` over SSH.
 
 ### Tests
 
-90 Rust tests, 34 front-end tests. New: PKCE RFC 7636 vector and generated verifiers; consent URL; client JSON (desktop, web rejected, malformed); loopback right state, wrong state, refused consent, timeout, cancel; expired token refreshes exactly once then retries; 401 refreshes once and retries, a second 401 is not refreshed; revoked refresh token signs out; 429 then 200; five 500s fail with the last error and no sixth request; network errors and quota 403s retried, permission 403s not; 404 → not found; paging for list and changes; query escaping; multipart upload; media update; Range downloads; never `DELETE`; full login against the loopback; login without Drive scope, without a client, without a browser; logout online and offline; scaffold on empty, twice, partial, same names elsewhere, a file named like a folder, under a chosen folder, progress; settings round-trip, update in place, newer schema refused and untouched, damaged; local settings; keyring fallback; connection first run, folder listing, logout keeps folder, account switch, client switch; CLI status/login/set-client/logout; fake-mode state; first-run screens (each step, waiting, no browser, errors, set-client, folder navigation and B, create, failure, returning account).
+90 Rust tests, 34 front-end tests. New: PKCE RFC 7636 vector and generated verifiers; consent URL; client JSON (desktop, web rejected, malformed); loopback right state, wrong state, refused consent, timeout, cancel; expired token refreshes exactly once then retries; 401 refreshes once and retries, a second 401 is not refreshed; revoked refresh token signs out; 429 then 200; five 500s fail with the last error and no sixth request; network errors and quota 403s retried, permission 403s not; 404 Ã¢ÂÂ not found; paging for list and changes; query escaping; multipart upload; media update; Range downloads; never `DELETE`; full login against the loopback; login without Drive scope, without a client, without a browser; logout online and offline; scaffold on empty, twice, partial, same names elsewhere, a file named like a folder, under a chosen folder, progress; settings round-trip, update in place, newer schema refused and untouched, damaged; local settings; keyring fallback; connection first run, folder listing, logout keeps folder, account switch, client switch; CLI status/login/set-client/logout; fake-mode state; first-run screens (each step, waiting, no browser, errors, set-client, folder navigation and B, create, failure, returning account).
 
 ### Choices made (not covered by the kit)
 
@@ -381,7 +492,7 @@ Status: **on-Deck checks passed 2026-10-18, except the weekly re-sign-in (due ab
 ### Deferred
 
 - Stage file step 7's integration test against a throwaway Google account: needs a real account and client, so it is the on-Deck checks below.
-- Settings screen (account, "Sign out", "Change location…"): stage 9.
+- Settings screen (account, "Sign out", "Change locationÃ¢ÂÂ¦"): stage 9.
 
 ### On-Deck checklist
 
@@ -426,7 +537,7 @@ Status: **done; on-Deck checks passed 2026-10-18.**
 - Release builds start full screen; debug builds windowed. `ROMSHELF_WINDOWED=1` / `ROMSHELF_FULLSCREEN=1` override.
 - On Linux the app sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` unless already set, a common fix for blank WebKitGTK windows under gamescope. **Confirm** on the Deck whether it is needed.
 - The shell shows the library as plain tiles (no drawer, no tabs yet) so fonts and colours can be compared with the screenshots; A on a tile does nothing until stage 9.
-- RetroArch cores (`snes9x`, `mgba`, `mupen64plus_next`) and Dolphin's `-b -e` flags are placeholders. **Confirm** in stages 4–5.
+- RetroArch cores (`snes9x`, `mgba`, `mupen64plus_next`) and Dolphin's `-b -e` flags are placeholders. **Confirm** in stages 4Ã¢ÂÂ5.
 - AppImage built on Ubuntu 22.04 for a low glibc floor.
 
 ### Deferred
@@ -442,7 +553,7 @@ Install (Desktop Mode, Konsole), after downloading `romshelf-appimage.zip` from 
 mkdir -p ~/Applications && cd ~/Downloads && unzip -o romshelf-appimage.zip && mv romshelf.AppImage ~/Applications/ && chmod +x ~/Applications/romshelf.AppImage
 ```
 
-Add to Steam: Steam → Games → Add a Non-Steam Game → Browse → `~/Applications/romshelf.AppImage`. To see the fixture library, set the shortcut's launch options to `ROMSHELF_FAKE=1 %command%`.
+Add to Steam: Steam Ã¢ÂÂ Games Ã¢ÂÂ Add a Non-Steam Game Ã¢ÂÂ Browse Ã¢ÂÂ `~/Applications/romshelf.AppImage`. To see the fixture library, set the shortcut's launch options to `ROMSHELF_FAKE=1 %command%`.
 
 - [x] The AppImage starts from Desktop Mode (double-click, or `~/Applications/romshelf.AppImage` in Konsole). 2026-10-18: started over SSH with `ROMSHELF_FAKE=1`; full screen, eight fixture tiles.
 - [x] Added to Steam, it starts in Game Mode, fills the screen, and returns to Steam on exit ("Quit Romshelf").

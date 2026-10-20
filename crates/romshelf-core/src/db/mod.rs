@@ -480,6 +480,35 @@ impl Database {
             .transpose()
     }
 
+    pub fn delete_control_profile(&self, emulator_id: &str, rom_id: Option<&RomId>) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM control_profiles WHERE emulator_id = ?1 AND rom_id = ?2",
+            [emulator_id, rom_id.map(RomId::as_str).unwrap_or("")],
+        )?;
+        Ok(())
+    }
+
+    /// Every game's profile for an emulator (not the default), by game.
+    pub fn game_control_profiles(&self, emulator_id: &str) -> Result<Vec<ControlProfile>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT rom_id, bindings FROM control_profiles WHERE emulator_id = ?1 AND rom_id != '' ORDER BY rom_id",
+        )?;
+        let rows = stmt
+            .query_map([emulator_id], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter()
+            .map(|(rom, b)| {
+                Ok(ControlProfile {
+                    emulator_id: emulator_id.to_string(),
+                    rom_id: Some(RomId(rom)),
+                    bindings: serde_json::from_str(&b)?,
+                })
+            })
+            .collect()
+    }
+
     // Shortcuts
 
     pub fn upsert_shortcut(&self, s: &Shortcut) -> Result<()> {

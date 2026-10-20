@@ -29,6 +29,8 @@ pub struct LibraryEntry {
     pub save: SaveSync,
     /// Romshelf keeps this game's save states (RetroArch).
     pub keeps_states: bool,
+    /// How many inputs this game maps differently from its emulator's default.
+    pub control_differences: usize,
 }
 
 pub fn entries(db: &Database, registry: &Registry) -> Result<Vec<LibraryEntry>> {
@@ -49,6 +51,15 @@ pub fn entries(db: &Database, registry: &Registry) -> Result<Vec<LibraryEntry>> 
                 in_steam: db.shortcut(&rom.id)?.is_some(),
                 save: db.save_sync(&rom.id)?,
                 keeps_states: adapter.is_some_and(|a| a.keeps_states()),
+                control_differences: match adapter {
+                    Some(a) => crate::controls::store::game_layout(
+                        db,
+                        &crate::controls::Scope::new(a.id(), rom.system),
+                        &rom.id,
+                    )?
+                    .len(),
+                    None => 0,
+                },
                 system_label: rom.system.label().into(),
                 system_colour: rom.system.colour().into(),
                 emulator: adapter.map(|a| a.name().to_string()),

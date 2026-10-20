@@ -2,6 +2,7 @@
 
 mod auth_cli;
 pub mod cli;
+mod controls_cmd;
 mod emulators_cli;
 mod gamepad;
 mod library_cli;
@@ -431,6 +432,7 @@ fn run_sync(app: &tauri::AppHandle) -> SyncStatus {
     };
     if status.state == "synced" {
         saves_cmd::flush_in_background(app);
+        controls_cmd::pull_in_background(app);
     }
     set_sync_status(app, status.clone());
     status
@@ -925,6 +927,8 @@ fn launch_command(target: Target) -> i32 {
             Ok(n) => n,
             Err(e) => return failed(e),
         };
+    // View + Menu held for a second quits the game, in any emulator.
+    gamepad::watch_quit(state.process.clone(), state.paths.log_dir());
     if !needs_window {
         let result = with_launch_ctx(&state, &no_answer, |ctx| {
             launch::run(ctx, &target, &mut |_| {})
@@ -1001,6 +1005,9 @@ fn run_interface(state: AppState, launch: Option<String>) -> i32 {
         }
     }
     let launching = launch.is_some();
+    // A launch from Steam already watches for View + Menu (see `launch_command`); the full
+    // interface watches for games started with Play.
+    let launch_quit = !launching;
     if let Ok(mut t) = state.launch_target.lock() {
         *t = launch;
     }
@@ -1038,6 +1045,11 @@ fn run_interface(state: AppState, launch: Option<String>) -> i32 {
             saves_cmd::restore_save,
             saves_cmd::save_states,
             saves_cmd::delete_save_state,
+            controls_cmd::controls_view,
+            controls_cmd::save_controls,
+            controls_cmd::reset_controls,
+            controls_cmd::promote_count,
+            controls_cmd::promote_controls,
             quit
         ])
         .setup(move |app| {
@@ -1048,6 +1060,10 @@ fn run_interface(state: AppState, launch: Option<String>) -> i32 {
                 .focused(true)
                 .build()?;
             gamepad::start(app.handle().clone());
+            if launch_quit {
+                let s = app.state::<AppState>();
+                gamepad::watch_quit(s.process.clone(), s.paths.log_dir());
+            }
             // A launch window is only there to start one game.
             if !launching {
                 start_update_check(app.handle().clone());
