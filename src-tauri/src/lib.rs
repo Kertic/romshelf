@@ -928,7 +928,7 @@ fn launch_command(target: Target) -> i32 {
             Err(e) => return failed(e),
         };
     // View + Menu held for a second quits the game, in any emulator.
-    gamepad::watch_quit(state.process.clone());
+    gamepad::watch_quit(state.process.clone(), state.paths.log_dir());
     if !needs_window {
         let result = with_launch_ctx(&state, &no_answer, |ctx| {
             launch::run(ctx, &target, &mut |_| {})
@@ -1061,7 +1061,8 @@ fn run_interface(state: AppState, launch: Option<String>) -> i32 {
                 .build()?;
             gamepad::start(app.handle().clone());
             if launch_quit {
-                gamepad::watch_quit(app.state::<AppState>().process.clone());
+                let s = app.state::<AppState>();
+                gamepad::watch_quit(s.process.clone(), s.paths.log_dir());
             }
             // A launch window is only there to start one game.
             if !launching {

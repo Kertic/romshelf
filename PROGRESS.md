@@ -54,6 +54,8 @@ Status: **built; waiting for the on-Deck checks.** You chose the back-grip appro
   - It stops the emulator the same clean way as Steam's Exit game (ask, then widen, then force), so the emulator writes its saves, and Romshelf backs them up as usual.
   - In the launch window (downloading or setting up), the same combination goes back to Steam.
   - Tested: the hold rule (once per hold, a second, starting over when let go); a requested stop ending a real program (Linux) and a fake one; and a stale request not stopping the next program.
+  - Found on the Deck (2026-10-20): while Dolphin runs, it opens the Deck's controller directly (`/dev/hidraw3`), and button presses stop arriving on Steam's virtual pad (`event10` carried only stick movement in a 5-minute recording). Romshelf watches every pad, so it still sees View + Menu, and Twilight Princess closed. Your earlier tries in Dolphin didn't close the game, and the cause isn't known yet, so each quit request is now logged in `launch.log` with the pad it came from.
+  - Nothing holds the pad exclusively while Dolphin runs (checked with `EVIOCGRAB`).
 - **Setup's step two** stores the built-in layout as the default for each of the emulator's systems, unless one is already there.
 - **Interface:**
   - **The Controls editor** (guide 5.4):
