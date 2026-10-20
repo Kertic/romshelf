@@ -106,7 +106,7 @@ fn random_layout(rng: &mut Rng, partial: bool) -> Layout {
     ];
     let mut out = Layout::new();
     for input in INPUTS {
-        if partial && rng.next() % 2 == 0 {
+        if partial && rng.next().is_multiple_of(2) {
             continue;
         }
         let b = match rng.next() % 4 {
@@ -311,7 +311,7 @@ fn promoting_names_the_games_that_will_change() {
         .into_iter()
         .map(|r| r.id)
         .collect();
-    assert_eq!(changed, [follows.id.clone()]);
+    assert_eq!(changed, std::slice::from_ref(&follows.id));
     let before = store::effective(&db, &gba(), &this.id).unwrap();
     store::promote(&db, &gba(), &this.id, 2).unwrap();
     assert!(store::game_layout(&db, &gba(), &this.id)
