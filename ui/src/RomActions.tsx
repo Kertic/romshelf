@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import type { LibraryEntry, Progress } from "./api";
+import type { BackupOutcome, LibraryEntry, Progress, RestoreOutcome, SaveChoice, SaveVersion, StateSlot } from "./api";
+import type { SetupState } from "./Emulators";
+import type { LaunchState } from "./LaunchWindow";
 import type { BackAction } from "./FirstRun";
+import { formatWhen, RestoreDialog, SaveConflictDialog, saveLine, StatesDialog } from "./Saves";
 
 /** "1.4 GB", "820 MB". */
 export function humanSize(bytes: number): string {
@@ -25,7 +28,7 @@ export function progressLine(p: Progress): string {
 }
 
 /** Puts focus on the dialog's `data-autofocus` element when it opens or changes view. */
-function useDialogFocus(key: string) {
+export function useDialogFocus(key: string) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const t = setTimeout(() => {
@@ -49,28 +52,134 @@ interface Props {
   onCancel: () => void;
   /** Removes the copy on this Deck; Drive is never touched. */
   onRemove: () => Promise<void>;
+  /** Starts the game. */
+  onPlay?: () => void;
+  /** This game being prepared or played. */
+  launch?: LaunchState;
+  /** Installs and sets up this game's emulator. */
+  onSetupEmulator?: () => void;
+  /** The emulator's setup, while it runs or after it failed. */
+  setup?: SetupState;
   onClose: () => void;
   setBack: (back: BackAction | null) => void;
+  /** Backing up, restoring and save states for this game. */
+  saves?: SaveActions;
+  /** Answers a save conflict the launch is waiting on. */
+  onAnswer?: (choice: SaveChoice) => void;
+  /** For tests: what "today" is. */
+  now?: Date;
+}
+
+/** What the game's dialog can do with its save. */
+export interface SaveActions {
+  backup: () => Promise<BackupOutcome>;
+  versions: () => Promise<SaveVersion[]>;
+  restore: (versionId: string) => Promise<RestoreOutcome>;
+  states: () => Promise<StateSlot[]>;
+  deleteState: (slot: string) => Promise<void>;
+}
+
+type View = "main" | "remove" | "restore" | "states";
+
+const CORE_NAMES: Record<string, string> = {
+  snes9x: "Snes9x",
+  mgba: "mGBA",
+  mupen64plus_next: "Mupen64Plus-Next",
+};
+
+/** "Runs in RetroArch with the mGBA core", "Needs Dolphin", or why it can't run. */
+export function emulatorLine(e: LibraryEntry): { text: string; warn: boolean } {
+  if (!e.emulator) return { text: `Romshelf can't run ${e.system_label} games yet.`, warn: true };
+  if (!e.emulator_ready) {
+    return {
+      text: e.emulator_installed ? `${e.emulator} needs setting up` : `Needs ${e.emulator}`,
+      warn: true,
+    };
+  }
+  const core = e.core ? ` with the ${CORE_NAMES[e.core] ?? e.core} core` : "";
+  return { text: `Runs in ${e.emulator}${core}`, warn: false };
 }
 
 /**
  * A game's download actions, opened with A on a tile. Stands in for the drawer and ROM page
  * until stage 9. Romshelf never changes files in Drive, so nothing here deletes from Drive.
  */
-export function RomDialog({ entry, progress, error, onDownload, onCancel, onRemove, onClose, setBack }: Props) {
-  const [confirming, setConfirming] = useState(false);
+export function RomDialog({
+  entry,
+  progress,
+  error,
+  onDownload,
+  onCancel,
+  onRemove,
+  onPlay,
+  launch,
+  onSetupEmulator,
+  setup,
+  onClose,
+  setBack,
+  saves,
+  onAnswer,
+  now,
+}: Props) {
+  const [view, setView] = useState<View>("main");
+  /** The outcome of the last save action, and a warning that came with it. */
+  const [saveNote, setSaveNote] = useState<{ text: string; error: boolean; warning?: string | null } | null>(null);
+  const [backingUp, setBackingUp] = useState(false);
   const rom = entry.rom;
   const state = rom.location.state;
-  const view = confirming ? "remove" : state;
-  const ref = useDialogFocus(view);
+  const ref = useDialogFocus(view === "main" ? state : view);
 
   useEffect(() => {
-    setBack(confirming ? { label: "Back", run: () => setConfirming(false) } : { label: "Close", run: onClose });
-  }, [confirming, onClose, setBack]);
+    setBack(view !== "main" ? { label: "Back", run: () => setView("main") } : { label: "Close", run: onClose });
+  }, [view, onClose, setBack]);
 
-  if (confirming) {
-    return <RemoveDialog entry={entry} onCancel={() => setConfirming(false)} onRemove={onRemove} dialogRef={ref} />;
+  // The launch is waiting for an answer about this game's save.
+  if (launch?.conflict && onAnswer) {
+    return <SaveConflictDialog conflict={launch.conflict} onAnswer={onAnswer} now={now} />;
   }
+  if (view === "remove") {
+    return <RemoveDialog entry={entry} onCancel={() => setView("main")} onRemove={onRemove} dialogRef={ref} />;
+  }
+  if (view === "restore" && saves) {
+    return (
+      <RestoreDialog
+        name={rom.display_name}
+        load={saves.versions}
+        onCancel={() => setView("main")}
+        now={now}
+        onRestore={async (v) => {
+          const out = await saves.restore(v.id);
+          setSaveNote({ text: `Restored the save from ${formatWhen(v.taken_at, now)}.`, error: false, warning: out.warning });
+          setView("main");
+        }}
+      />
+    );
+  }
+  if (view === "states" && saves) {
+    return <StatesDialog load={saves.states} onDelete={saves.deleteState} onClose={() => setView("main")} setBack={setBack} now={now} />;
+  }
+
+  const backup = async () => {
+    if (!saves) return;
+    setBackingUp(true);
+    setSaveNote(null);
+    try {
+      const out = await saves.backup();
+      setSaveNote({
+        text:
+          out.kind === "uploaded"
+            ? `Backed up ${rom.display_name}`
+            : out.kind === "unchanged"
+              ? "Drive already has this save."
+              : `${rom.display_name} has no save on this Deck yet. Play it first.`,
+        error: false,
+      });
+    } catch (e) {
+      setSaveNote({ text: e && typeof e === "object" && "message" in e ? String(e.message) : String(e), error: true });
+    }
+    setBackingUp(false);
+  };
+  const backupLine = saveLine(entry.save, now);
 
   const pct =
     state === "downloading"
@@ -79,6 +188,13 @@ export function RomDialog({ entry, progress, error, onDownload, onCancel, onRemo
         : `${(rom.location as { percent: number }).percent}%`
       : null;
   const fraction = progress && progress.total > 0 ? progress.bytes / progress.total : 0;
+  const line = emulatorLine(entry);
+  // The guide's screen 2b: with the emulator missing, setting it up is the main action.
+  const needsSetup = Boolean(entry.emulator) && !entry.emulator_ready;
+  const setupRunning = Boolean(setup?.running);
+  // Downloaded with its emulator ready: Play is the main action (guide screen 2).
+  const canPlay = state === "on_deck" && entry.emulator_ready;
+  const playing = Boolean(launch?.running);
 
   return (
     <div className="dialog-backdrop">
@@ -87,6 +203,18 @@ export function RomDialog({ entry, progress, error, onDownload, onCancel, onRemo
           {entry.system_label} · {rom.file_name} · {humanSize(rom.size)}
         </span>
         <h2 className="dialog-title">{rom.display_name}</h2>
+        <span className={line.warn ? "tile-status warn" : "body-text"}>{line.text}</span>
+        {needsSetup && setupRunning && (
+          <div className="progress" aria-label={`${entry.emulator} setup progress`}>
+            <div className="progress-track">
+              <div className="progress-fill" style={{ width: `${setup?.percent ?? 0}%` }} />
+            </div>
+            <span className="mono small">
+              {setup?.step ?? "Setting up"}…{setup?.percent != null ? ` ${setup.percent}%` : ""}
+            </span>
+          </div>
+        )}
+        {needsSetup && setup?.failed && setup.message && <p className="error">{setup.message}</p>}
         {state === "downloading" ? (
           <div className="progress" aria-label="Download progress">
             <div className="progress-track">
@@ -100,16 +228,96 @@ export function RomDialog({ entry, progress, error, onDownload, onCancel, onRemo
           </p>
         )}
         {error && <p className="error">{error}</p>}
+        {launch?.error && <p className="error">{launch.error}</p>}
+        {entry.emulator && entry.actions.length > 0 && (
+          <section className="functions" aria-label={`${entry.emulator} functions`}>
+            <h3 className="group-label">{entry.emulator} functions</h3>
+            {entry.actions.map((a) => (
+              <div className="function-row" key={a.id}>
+                <span>{a.label}</span>
+                <span className="muted small">Comes in a later update</span>
+              </div>
+            ))}
+          </section>
+        )}
+        {saves && entry.emulator_ready && (
+          <section className="functions" aria-label="Save backup">
+            <h3 className="group-label">Save backup</h3>
+            <span className={backupLine.warn ? "tile-status warn" : "body-text"}>{backupLine.text}</span>
+            {saveNote && <p className={saveNote.error ? "error" : "body-text"}>{saveNote.text}</p>}
+            {saveNote?.warning && <p className="tile-status warn">{saveNote.warning}</p>}
+            <div className="dialog-actions start">
+              <button
+                className="button outline"
+                data-focusable
+                data-hint="Back up"
+                type="button"
+                disabled={backingUp || playing}
+                onClick={() => void backup()}
+              >
+                {backingUp ? "Backing up…" : "Back up save data"}
+              </button>
+              <button
+                className="button outline"
+                data-focusable
+                data-hint="Restore"
+                type="button"
+                disabled={playing}
+                onClick={() => setView("restore")}
+              >
+                Restore save from Drive…
+              </button>
+              {entry.keeps_states && (
+                <button
+                  className="button outline"
+                  data-focusable
+                  data-hint="Open"
+                  type="button"
+                  disabled={playing}
+                  onClick={() => setView("states")}
+                >
+                  Save states…
+                </button>
+              )}
+            </div>
+          </section>
+        )}
         <div className="dialog-actions">
+          {canPlay && (
+            <button
+              className="button primary"
+              data-focusable
+              data-autofocus
+              data-hint="Play"
+              type="button"
+              disabled={playing}
+              onClick={onPlay}
+            >
+              {playing ? `${launch?.label ?? "Starting"}…` : "Play"}
+            </button>
+          )}
+          {needsSetup && (
+            <button
+              className="button primary"
+              data-focusable
+              data-autofocus
+              data-hint="Set up"
+              type="button"
+              disabled={setupRunning}
+              onClick={onSetupEmulator}
+            >
+              {setup?.failed ? `Try setting up ${entry.emulator} again` : `Set up ${entry.emulator}`}
+            </button>
+          )}
           {state === "downloading" ? (
             <button className="button outline" data-focusable data-autofocus data-hint="Cancel" type="button" onClick={onCancel}>
               Cancel download
             </button>
           ) : (
             <button
-              className={state === "on_deck" ? "button outline" : "button primary"}
+              className={state === "on_deck" || needsSetup ? "button outline" : "button primary"}
               data-focusable
-              data-autofocus
+              data-autofocus={needsSetup || canPlay ? undefined : true}
               data-hint="Download"
               type="button"
               onClick={onDownload}
@@ -123,7 +331,7 @@ export function RomDialog({ entry, progress, error, onDownload, onCancel, onRemo
               data-focusable
               data-hint="Remove"
               type="button"
-              onClick={() => setConfirming(true)}
+              onClick={() => setView("remove")}
             >
               Remove from Deck…
             </button>

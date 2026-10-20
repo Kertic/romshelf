@@ -1,6 +1,8 @@
 //! Local SQLite index: schema, migrations and queries.
 
-use crate::model::{ControlProfile, Emulator, LocationState, Rom, RomId, Shortcut, System};
+use crate::model::{
+    ControlProfile, Emulator, LocationState, Rom, RomId, SaveSync, Shortcut, System,
+};
 use crate::{Error, Result};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::path::Path;
@@ -72,6 +74,17 @@ CREATE TABLE name_overrides (
     name    TEXT NOT NULL
 );
 "#,
+    // Stage 6: each game's save against Drive, and backups still owed.
+    r#"
+CREATE TABLE save_sync (
+    rom_id              TEXT PRIMARY KEY,
+    last_synced_hash    TEXT,
+    last_backup_at      INTEGER,
+    last_backup_device  TEXT,
+    pending             INTEGER NOT NULL DEFAULT 0,
+    last_error          TEXT
+);
+"#,
 ];
 
 pub struct Database {
@@ -92,6 +105,9 @@ impl Database {
 
     fn init(conn: Connection) -> Result<Database> {
         conn.pragma_update(None, "foreign_keys", true)?;
+        // The interface and a `romshelf launch` from Steam can use the database at the same
+        // time; each waits briefly for the other's write instead of failing.
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
         let mut db = Database { conn };
         db.migrate()?;
         Ok(db)
@@ -324,6 +340,57 @@ impl Database {
             [rom_id.as_str()],
             |r| r.get::<_, i64>(0),
         )? as u64)
+    }
+
+    pub fn save_sync(&self, rom_id: &RomId) -> Result<SaveSync> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT last_synced_hash, last_backup_at, last_backup_device, pending, last_error
+                 FROM save_sync WHERE rom_id = ?1",
+                [rom_id.as_str()],
+                |r| {
+                    Ok(SaveSync {
+                        last_synced_hash: r.get(0)?,
+                        last_backup_at: r.get(1)?,
+                        last_backup_device: r.get(2)?,
+                        pending: r.get(3)?,
+                        last_error: r.get(4)?,
+                    })
+                },
+            )
+            .optional()?
+            .unwrap_or_default())
+    }
+
+    pub fn put_save_sync(&self, rom_id: &RomId, s: &SaveSync) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO save_sync (rom_id, last_synced_hash, last_backup_at, last_backup_device, pending, last_error)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(rom_id) DO UPDATE SET last_synced_hash = excluded.last_synced_hash,
+               last_backup_at = excluded.last_backup_at, last_backup_device = excluded.last_backup_device,
+               pending = excluded.pending, last_error = excluded.last_error",
+            params![
+                rom_id.as_str(),
+                s.last_synced_hash,
+                s.last_backup_at,
+                s.last_backup_device,
+                s.pending,
+                s.last_error
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Games whose save backup is owed, oldest first.
+    pub fn pending_saves(&self) -> Result<Vec<RomId>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT rom_id FROM save_sync WHERE pending = 1 ORDER BY rowid")?;
+        let ids = stmt
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(ids.into_iter().map(RomId).collect())
     }
 
     pub fn roms(&self) -> Result<Vec<Rom>> {

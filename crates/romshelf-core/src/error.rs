@@ -10,7 +10,8 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     #[error("not found: {0}")]
     NotFound(String),
-    #[error("invalid: {0}")]
+    /// Something isn't valid. Many of these reach the user, so the text is a full sentence.
+    #[error("{0}")]
     Invalid(String),
     #[error("{0}")]
     External(String),
@@ -29,6 +30,9 @@ pub enum Error {
     Cancelled,
     #[error("{0}")]
     Timeout(String),
+    /// A launch needs the user to answer a question (a save conflict) and no window is open.
+    #[error("This game's save needs a choice before it starts.")]
+    NeedsAnswer,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

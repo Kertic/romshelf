@@ -11,7 +11,7 @@ Steam Deck app that manages emulation from one place. Full brief: `docs/kit/00-I
 
 ## Fixed decisions (ask before changing)
 
-1. One binary, `romshelf`. No args → full-screen UI. Subcommands (`launch`, `sync`, `doctor`, `auth`, `steam`, `update`, `download`, `remove`, `storage`) run headless.
+1. One binary, `romshelf`. No args → full-screen UI. Subcommands (`launch`, `sync`, `doctor`, `auth`, `steam`, `update`, `download`, `remove`, `storage`, `emulators`) run headless.
 2. Tauri 2; all logic in Rust; front end React + Vite + TypeScript, plain CSS with custom-property tokens, no component library.
 3. All logic in `crates/romshelf-core` (no Tauri dependency). `src-tauri` and the CLI are thin layers.
 4. Drive API v3 directly with the user's own desktop client ID, full `drive` scope, loopback + PKCE sign-in in the system browser.

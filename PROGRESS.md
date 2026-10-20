@@ -1,8 +1,208 @@
 # Progress
 
+## Stage 6: saves and save states (branch `stage-06-saves`, on top of stage 5)
+
+Status: **on-Deck checks passed 2026-10-19.**
+
+### Built
+
+- **One save folder per game, set by Romshelf for the games it starts:**
+  - **RetroArch:** saves go to `config/romshelf/saves/<rom-id>/` and states to `config/romshelf/states/<rom-id>/`.
+    - Each game gets its own appended config, `config/romshelf/games/<rom-id>.cfg`. The launch passes `--appendconfig "<romshelf.cfg>|<game cfg>"`; RetroArch reads `|`-separated configs in order.
+    - `romshelf.cfg` now also turns off saving next to the ROM and per-core sub-folders. EmuDeck's `retroarch.cfg` has these off already, but a user's own settings might not.
+    - Saves an earlier Romshelf kept in the shared folder (`Kirby - Nightmare in Dream Land (USA).srm` on the Deck) move into the game's folder the first time.
+  - **Dolphin:** memory card A becomes a folder of saves that belongs to the game: `-C Dolphin.Core.SlotA=8 -C Dolphin.Core.GCIFolderAPathOverride=<data/romshelf-user/GC/Romshelf/<rom-id>>`.
+    - The game's saves (`01-GZ2E-gczelda2.gci` for Twilight Princess) move there from the shared `GC/<region>/Card A/` the first time.
+    - The game is identified by the id in its disc header. That's at 0x58 in RVZ and WIA files, after the 32 KB header of a CISO, and at the start of an ISO or GCM.
+- **Backup** (`saves/mod.rs`):
+  - Each backup is its own folder in Drive: `Emulation/saves/<system>/<rom-id>/<UTC time>/`. It holds the files plus `manifest.json` (file names, sizes, MD5s, device, emulator, core, and one hash for the whole save).
+  - The manifest is written last, so a backup that didn't finish uploading is ignored.
+  - Nothing is uploaded when the newest backup already has the same save.
+  - The newest 10 backups are kept (the `save_versions` setting). Older ones go to Drive's trash.
+- **Restore:**
+  1. Downloads the chosen backup and checks every file.
+  2. Backs up the Deck's current save first, unless a kept backup already has it.
+  3. Swaps the folders.
+
+  If the download fails, the Deck's save is untouched. Restoring a save made with another core gives a warning ("This save was made with retroarch (vba_next); retroarch (mgba) may not load it.").
+- **Before each launch,** each game's `save_sync` row (a new table) records the save hash from the last time this Deck and Drive agreed. The Deck's save and Drive's newest backup are each compared with it:
+  - Only Drive's changed (played on another machine): it's restored, and the launch says "Restored the newer save from deck-b".
+  - Only the Deck's changed: nothing to do; it's backed up when the game ends.
+  - Both changed: **Two different saves**, with each side's time and device, and **Use this Deck's** / **Use Drive's** / **Cancel**. Whichever save loses is backed up first.
+  - Drive can't be reached: the game starts with the Deck's save.
+- **After the game,** whatever the exit code, the save is backed up and new or changed save states are mirrored to `Emulation/states/<system>/<rom-id>/`. A failed backup never changes the exit code.
+- **Backups still owed:** a game is marked "backup owed" just before it starts, and the mark is cleared only when a backup succeeds. So when Steam's **Exit game** ends Romshelf, or Drive was unreachable, the backup happens on Romshelf's next run: the next launch, opening Romshelf, or a sync. Nothing is uploaded while a game is running: `launch.lock` names a live process. A lock left behind by an ended Romshelf names a dead one and is ignored.
+- **Save states:**
+  - The game's slots are listed with their times.
+  - Deleting a slot asks first. It's removed from the Deck, and its Drive copy goes to Drive's trash (it's uploaded first if Drive didn't have it).
+  - Slots made on another machine are downloaded before a launch.
+- **Setup's "Link saves" step** now does real work: it creates `saves/<system>/` and `states/<system>/` in Drive for each of the emulator's systems.
+- **Interface:**
+  - The game's dialog has a **Save backup** group: "Backed up Today 3:16 PM from steamdeck", "Not backed up yet", or "Waiting to back up…", with **Back up save data**, **Restore save from Drive…** and **Save states…** (RetroArch games).
+  - **Restore a save** lists date, device and size, with Cancel focused first and "Your current save is backed up first."
+  - The conflict dialog appears both in the launch window and when you press Play.
+  - Toasts: "Backed up Kirby".
+- **`romshelf launch` from Steam with a conflict:** nothing starts until you answer. A launch with no window has no one to ask, so it opens the launch window and asks there.
+
+### Tests
+
+35 new Rust tests in `tests/saves.rs`:
+- Backup then restore is byte-identical.
+- The Drive layout and manifest.
+- An unchanged save makes no new version, and no save uploads nothing.
+- Retention keeps exactly N, the default is 10, and the old ones go to the trash.
+- Two backups in the same second are both kept.
+- Restore backs up the replaced save, an older version can be restored with the newer still listed, a failed restore leaves the Deck's save alone, and a different core gives a warning.
+- Backups touch nothing else in Drive.
+- The conflict matrix (all four combinations), plus both sides reaching the same save, and a backup removed from Drive.
+- The pipeline:
+  - Backup after the game, and after a non-zero exit.
+  - Drive offline at exit: the backup is queued with the exit code unchanged, and uploaded later.
+  - A force-quit launch is backed up at the next run, and owed backups wait while a game runs.
+  - A stale lock is ignored (Linux).
+  - A newer save from another Deck is restored.
+  - Two Decks taking turns lose nothing and are never asked.
+  - A conflict with no window starts nothing; Keep, Use Drive's and Cancel each do what they say.
+  - Offline at the start still plays.
+- Setup links the Drive folders.
+- RetroArch's per-game folders and config, and moving saves in from the shared folder.
+- Dolphin's game id from ISO, RVZ, WIA, CISO (and none from GCZ), and its per-game memory-card folder.
+- Save states mirrored, fetched, listed and deleted, and a Deck-only state uploaded before deleting.
+
+Also 2 unit tests (UTC folder names, the save hash), 13 UI tests (time wording, the save backup line, backup outcomes, the restore list, core warning, empty list, save states and delete, the conflict dialog in all three places), and updated stage 4 and 5 tests (setup now adds only its own save folders to Drive; the new RetroArch and Dolphin command lines).
+
+### Choices made
+
+- **"Only Drive changed" restores without asking.** The stage file says both "offer restore (default yes)" and "no prompt appears when only one side changed". Restoring is safe: the save it replaces is already in Drive, since it's the one both last agreed on. So Romshelf restores and says so, and only asks about a real conflict.
+- **Saves stay separate from EmuDeck's.** Games started from Romshelf use Romshelf's folders, and EmuDeck's saves on the SD card aren't read or changed. A save made through EmuDeck or ES-DE doesn't carry over to Romshelf, and the other way round.
+- **Dolphin's save states aren't kept yet.** Dolphin names them by game id in one shared `StateSaves/` folder, with no setting to separate them per game. GameCube memory-card saves are backed up. RetroArch states are mirrored.
+- **Save files are kept flat:** the files in the game's folder, not sub-folders. Neither emulator writes sub-folders there.
+- **The machine's name** in each backup is `/etc/hostname` ("steamdeck").
+
+### Confirmed on the Deck (2026-10-19)
+
+- RetroArch reads both files given to `--appendconfig` joined with `|`: Kirby's saves landed in its own folder and were backed up from there (check 1).
+- Dolphin 2407 honours `GCIFolderAPathOverride`: Twilight Princess kept its moved save and backed it up from its own card folder (check 2). The setting name is in the Deck's `dolphin-emu` binary, and the RVZ header has `GZ2E01` at 0x58.
+
+### On-Deck checklist
+
+- [x] Play Kirby, save in game, quit with View + Menu: the game's dialog shows a new "Backed up" time, and `Emulation/saves/gba/<rom-id>/<time>/` exists in Drive with the `.srm` and `manifest.json`.
+- [x] Play Twilight Princess: your existing save is still there (moved into Romshelf's per-game card folder). Save, quit: a backup with `01-GZ2E-gczelda2.gci` appears in Drive.
+- [x] Delete the local save (`~/.var/app/org.libretro.RetroArch/config/romshelf/saves/<rom-id>/`), then **Restore save from Drive…** and pick the newest. Launch: progress is intact.
+- [x] Restore an older version: the game shows the older progress, and the newer version is still in the list.
+- [x] Airplane mode: play and quit. The dialog says "Waiting to back up". Reconnect and open Romshelf (or sync): the backup uploads and a "Backed up …" toast shows.
+- [x] Quit a game with Steam button → **Exit game**: the next time Romshelf opens, the save is backed up.
+
+All six passed on the Deck, 2026-10-19 (your report).
+
+## Stage 5: launch pipeline (branch `stage-05-launch-pipeline`, on top of stage 4)
+
+Status: **on-Deck checks passed 2026-10-19.**
+
+### Built
+
+- **`launch/mod.rs`, one pipeline** for every Steam shortcut (`romshelf launch --id <id>`, or `--rom gba/Kirby.gba`), the Play button and `romshelf doctor --id`:
+  1. Find the game. An unknown id is "Romshelf doesn't know a game called … Sync, then try again." (exit 2). A game gone from Drive, a system with no emulator, or a file the emulator can't run (the GameCube `.zip`) is a clear error, and nothing starts.
+  2. Download it if it isn't on the Deck, with progress.
+  3. Set up its emulator if Romshelf's setup hasn't run. A missing required BIOS stops here with what to add.
+  4. Check saves, then 5. write controls: placeholders until stages 6 and 7.
+  6. Start the emulator and wait. 7. Back up saves (placeholder), which runs whatever the exit code was.
+
+  Romshelf exits with the emulator's exit code unchanged. Whether a step is needed is read from the database only, so checking runs no Flatpak command.
+- **Emulator commands:**
+  - RetroArch: `flatpak run --filesystem=<storage root>:ro org.libretro.RetroArch -L <core file> --appendconfig <Romshelf's romshelf.cfg> -f <rom>`
+  - Dolphin: `flatpak run --filesystem=<storage root>:ro org.DolphinEmu.dolphin-emu -u <Romshelf's user folder> -b -C Dolphin.Display.Fullscreen=True -e <rom>`, using options confirmed from Dolphin's `--help` on the Deck.
+  - `--filesystem=…:ro` gives the sandbox read access to wherever ROMs are kept (home or an SD card) for that run only.
+- **Process runner:** waits for the emulator, so Steam's game tracking stays right. A stop signal to Romshelf (SIGTERM, SIGINT, SIGHUP, as when Steam ends the game) is passed on to the emulator, and Romshelf keeps waiting for it to exit. Its stderr still reaches the terminal, and the last 20 lines are kept for the log.
+- **`launch.lock`** holds Romshelf's process id while a game runs (the self-updater waits for it) and is removed afterwards.
+- **Launch log** at `~/.local/share/romshelf/logs/launch.log`: time, rom-id, emulator, duration and exit code per launch, plus the emulator's last lines when it failed.
+- **The launch window** (UI guide section 8):
+  - A game that is downloaded with its emulator ready starts with no window at all.
+  - Otherwise `romshelf launch` opens a full-screen window: small cover, title, the step ("Downloading", "Setting up Dolphin") and a progress bar. It hides when the game starts, and exits with the emulator's code when the game ends.
+  - On an error it shows the reason, **Try again** and **Open Romshelf**. B cancels and exits.
+- **Play:** for a downloaded game with its emulator ready, **Play** is the first action in the game's actions dialog. It shows the step while starting, and the reason if it fails. When the game ends you're back in Romshelf.
+- **`romshelf doctor --id <id>`** lists each step a launch would take, with the exact emulator command, and changes nothing.
+- **Sharing the database:** it now waits up to 5 s for another process's write, so a launch from Steam works while Romshelf is open.
+- **Fake mode:** "games" run for five seconds and exit normally.
+- **Dolphin starts from your settings:** found before testing on the Deck. Romshelf's own Dolphin user folder was empty, so Dolphin would have started with default (keyboard) controls and graphics. EmuDeck's settings map the Deck (`SDL/0/Steam Virtual Gamepad`) and use Vulkan. Now Romshelf copies `Dolphin.ini`, `GFX.ini`, `GCPadNew.ini`, `GCKeyNew.ini` and `Hotkeys.ini` from your Dolphin settings into its own `Config/` the first time, reading yours only. After that its copy is its own, for the stage 7 controls editor to change. Every launch checks the session folder, so the Dolphin set up in stage 4 gets the copy too.
+
+### Tests
+
+17 launch tests (including that every launch prepares the session folder again), 1 more emulator test (the copied settings, with yours untouched and Romshelf's copy never replaced), and: RetroArch's and Dolphin's exact command lines; exit codes 0 and 3 returned unchanged; a ready game goes straight to the emulator with no window needed; download first; setup first; download then setup then launch; `--id` and `--rom` find the same game; an unknown id named, with nothing started; gone from Drive; no emulator, and an unrecognized file; backup after a failed exit with the save check and controls before the run; the launch lock held during the run and gone after; the launch log; `doctor` writing nothing, starting nothing and calling no Flatpak; two database connections sharing a file. Plus 5 UI tests for the launch window and Play.
+
+### Choices made
+
+- **One process per launch.** `romshelf launch` doesn't hand the game to an already open Romshelf; both can run at once, sharing the database. That keeps Steam's process tracking simple: the shortcut's own process waits for the game.
+- **The launch window hides while the game runs**, so the emulator has the screen; it shows again only if something fails.
+- **Saves are separate for now.** Games Romshelf starts save to Romshelf's own folders (Dolphin's user folder, RetroArch's `romshelf/saves`), not EmuDeck's on the SD card. So a save made through EmuDeck or ES-DE won't show in a game started from Romshelf, and the other way round. Stage 6 (save backup) decides how saves are kept and shared.
+- **Quitting a game comes from the emulator's settings.** Today that's EmuDeck's hotkeys in the copied settings (View + Menu exits Dolphin). Stage 7 (controls) should give every game one quit combination that doesn't depend on another tool's settings.
+- **Found on the Deck: passing a stop to a Flatpak emulator.** `flatpak run` becomes `bwrap`, which starts the sandbox (`bwrap → bwrap → dolphin-emu-wrapper → dolphin-emu`) and doesn't pass signals into it. So a stop sent to Romshelf's own child never reached Dolphin. Romshelf now sends SIGTERM to the programs at the end of its chain (the emulator), widens it to the whole chain after 10 s and forces it after 20 s. Tested on the Deck: Dolphin closed cleanly within a second ("A signal was received…"), and Romshelf exited 0. Also seen: ending an SSH session ends the programs it started but not Flatpak apps, which run in their own systemd scope. That only matters for testing over SSH.
+- **`romshelf doctor` without `--id`** (the whole-setup check) is stage 10's.
+- **Play isn't offered before downloading.** The dialog's first action is **Download to Deck**, or **Set up {emulator}**, until the game can start straight away. A Steam shortcut still does everything in one go.
+
+### On-Deck checklist
+
+- [x] Play from the Library starts the game full screen; quitting returns to Romshelf. 2026-10-19: Twilight Princess in Dolphin, with your controls (copied settings); quit with View + Menu (EmuDeck's Exit hotkey, from the copied Hotkeys.ini). Log: `gamecube-2260f1ec dolphin 1051s exit 0`.
+- [x] From the Desktop Mode terminal, `~/Applications/romshelf.AppImage launch --id <id>` starts the same game (ids: `romshelf doctor --id <id>` explains one; your Twilight Princess is `gamecube-2260f1ec`). 2026-10-19: started Dolphin straight away with no window. Controls don't respond when started outside Steam: the copied Dolphin settings use the controller Steam creates for games it launches (`SDL/0/Steam Virtual Gamepad`). Expected; Steam shortcuts have it.
+- [x] Add a non-Steam shortcut with target `~/Applications/romshelf.AppImage` and launch options `launch --id <id>`; it starts the game from Game Mode and returns to Steam on quit. 2026-10-19: you confirmed it on the Deck (Twilight Princess, controls working).
+- [x] Launch a game that isn't downloaded from such a shortcut: the progress window appears, then the game. 2026-10-19: you confirmed it (Kirby, downloaded at 15:35 by the shortcut). Quitting with Steam button → Exit game left no launch log line: Steam ends Romshelf forcefully. Quitting in game with View + Menu (EmuDeck's RetroArch hotkey) logged `gba-8f031392 retroarch 53s exit 0`. So stage 6 can't rely on running after the game: it records an open session at start and backs up any session that wasn't closed the next time Romshelf runs.
+- [x] The Steam overlay and the Deck's quick-access menu work while the game runs. 2026-10-19: the Steam button menu works in game.
+
+## Stage 4: emulator registry and setup (branch `stage-04-emulator-setup`, on top of stage 3)
+
+Status: **passed on the Deck 2026-10-19** (you counted it as passed; the "needs setting up" screen wasn't seen because Dolphin was already set up). Both Confirm items checked.
+
+### Built
+
+- **Registry:** SNES `snes9x`, GBA `mgba`, N64 `mupen64plus_next` in RetroArch; GameCube in Dolphin. `Registry::require` gives "Romshelf can't run PS2 games yet." for a system with no emulator.
+- **Detect:** `flatpak info <id>` counts an install for this user *or* system-wide, so an emulator EmuDeck installed is used rather than installed twice.
+- **Install:** `flatpak remote-add --user --if-not-exists flathub …`, then `flatpak install --user --noninteractive -y flathub <id>`, streaming Flatpak's output and reading the percentages for progress. A failure gives Flatpak's own message ("Couldn't install Dolphin: … Try again.") and a later attempt starts cleanly.
+- **RetroArch cores:** each missing core is downloaded from `buildbot.libretro.com/nightly/linux/x86_64/latest/<core>_libretro.so.zip`, unzipped, checked to be an ELF file, and put in the Flatpak's cores folder. A core already there (yours or EmuDeck's) is left alone.
+- **Session folders, never your settings:**
+  - RetroArch: `~/.var/app/org.libretro.RetroArch/config/romshelf/` with `saves/`, `states/`, `system/`, and `romshelf.cfg` pointing RetroArch at them. That file is meant for `--appendconfig` in stage 5. `retroarch.cfg` is never edited.
+  - Dolphin: `~/.var/app/org.DolphinEmu.dolphin-emu/data/romshelf-user/`, meant for Dolphin's `-u` user-folder option. Your Dolphin settings and memory cards are not touched.
+- **BIOS:** adapters can declare required and optional files per system. Setup copies them from Drive's `bios/<system>/` (reading only) and lists what's missing: "Missing BIOS: rom1.bin. Add it to Drive's Emulation/bios/ps2 folder." RetroArch and Dolphin need none for these systems.
+- **Setup steps:** Install, Default controls, Link saves. Each is recorded in the database when done, so an interrupted setup resumes at the next step. The last two only record completion until stages 7 and 6 fill them in. If the Flatpak disappears outside Romshelf, the steps start over. **Repair** runs them all again.
+- **Status:** Not installed / Setup incomplete (installed, perhaps by EmuDeck, but Romshelf's setup or a core is missing) / Installed. Checking also keeps the database's "installed" flag (the Library's "Needs Dolphin") in step, and runs once at start-up.
+- **Declared actions:** the game's actions dialog lists the emulator's own functions ("Memory cards", "Save states", "Texture packs" for Dolphin; "Save states", "Cheats", "Shaders" for RetroArch), each marked "Comes in a later update".
+- **Command line:** `romshelf emulators` lists them; `romshelf emulators --setup dolphin` sets one up and prints the steps and progress.
+- **Interface:**
+  - An **Emulators** button in the top band opens the Emulators screen: each emulator with its systems, status and **Set up** / **Repair** (or **Try again**), with a progress bar while it installs. Setup keeps running in the background if you go back.
+  - A game's actions dialog says "Runs in RetroArch with the mGBA core", "Needs Dolphin" or "Romshelf can't run PS2 games yet". When the emulator isn't ready, **Set up {emulator}** comes first with its progress (guide screen 2b).
+- **Fake mode:** a simulated Flatpak (RetroArch installed and set up, Dolphin not) that installs with visible progress.
+
+### Tests
+
+17 emulator tests: every recognized extension resolves to one emulator or "can't run … yet"; detecting installed and not installed (any installation); the exact install commands once, with progress 12 → 58 → 100; an installed emulator not installed again; an install failure with Flatpak's message, then a working retry; a missing core fetched and present ones left alone; a bad core download reported with nothing written; setup resuming at step two; the three statuses; session folders created while the user's `retroarch.cfg` and `Dolphin.ini` stay byte-identical; BIOS copied and missing ones named; different declared actions; listing with systems and status keeping the installed flag; nothing written to Drive; the simulated Flatpak. Plus the progress parser, `romshelf emulators` (list, set up, unknown name), CLI parsing, and 12 UI tests (Emulators screen rows, actions, progress, failure; the dialog's emulator line, functions, Set up first, setup progress and retry, unsupported system).
+
+### Choices made
+
+- **Installed by anyone counts.** The stage file says `flatpak info --user`; that would miss EmuDeck's system-wide installs and add a duplicate.
+- **Romshelf's settings live inside each Flatpak's own data folder**, because the sandbox can always reach it. Nothing outside it is written.
+- **Status has no "Update available" yet.** Flathub updates come through Discover or `flatpak update`. Noted for stage 9's Emulators screen.
+- **The stage file calls this the "ROM page".** Until stage 9 builds it, the game's actions dialog carries its parts: the emulator line, setup and functions.
+- `Error::Invalid` no longer prefixes messages with "invalid:", since many reach the user (stage 3's storage messages too).
+- `romshelf emulators` is a new subcommand (CLAUDE.md updated).
+
+### Confirm on the Deck
+
+- **Where the RetroArch Flatpak keeps cores: confirmed 2026-10-19.** On this Deck (EmuDeck), `libretro_directory = "~/.var/app/org.libretro.RetroArch/config/retroarch/cores"`, and snes9x, mgba and mupen64plus_next are already there (93 cores in all). EmuDeck points RetroArch's saves, states and BIOS at the SD card's `Emulation/` folder. Romshelf's append-config is only used for games Romshelf starts, so EmuDeck's setup is unaffected.
+- **Both emulators are installed** as user Flatpaks: `org.libretro.RetroArch` 1.19.1 and `org.DolphinEmu.dolphin-emu` 2407. The user has a `flathub` remote, and there's a system one too.
+- **Found and fixed on the Deck:** the first stage 4 build said both were "Not installed". Running from the AppImage, `flatpak` inherited the AppImage's `LD_LIBRARY_PATH` and failed with `symbol lookup error: /usr/lib/libmalcontent-0.so.0: undefined symbol: g_task_set_static_name`. The full list of variables was read from a running Romshelf. `process::host_command` now removes them, and the AppImage's folders from `XDG_DATA_DIRS`, for every host program: Flatpak, emulators and the browser.
+- **Dolphin's user folder option: confirmed 2026-10-19.** Dolphin 2407's `--help` (run with `QT_QPA_PLATFORM=offscreen`, since it needs a display otherwise) lists `-u USER, --user=USER  User folder path`, `-e <file>, --exec=<file>` and `-b, --batch` ("Run Dolphin without the user interface (Requires --exec…)"). These match what stage 5 will use. The Flatpak's command is `dolphin-emu-wrapper`.
+- **After the fix:** `romshelf emulators` on the Deck shows both as "Setup incomplete": installed by EmuDeck, with Romshelf's setup not yet run. Correct.
+- That the buildbot's generic Linux cores load in the Flatpak RetroArch (they're what its own core updater downloads). Not needed on this Deck, since the cores are already present.
+
+### On-Deck checklist
+
+- [x] With Dolphin not installed, open a GameCube game's actions: it says "Needs Dolphin" and offers **Set up Dolphin** first (screen 2b). Not seen on the Deck: Dolphin (installed by EmuDeck) was already set up through the Emulators screen. Covered by the UI tests; counted as passed at your request.
+- [x] Press **Set up Dolphin**: it installs with visible progress and the game then shows "Runs in Dolphin" (screen 2). 2026-10-19: setup ran from the Emulators screen; Twilight Princess (`.rvz`) shows "Runs in Dolphin". No install needed, since EmuDeck had installed Dolphin.
+- [x] Do the same for RetroArch (or **Repair** it if EmuDeck already installed it) and confirm the snes9x, mgba and mupen64plus_next cores are present. 2026-10-19: set up; all three cores were already present.
+- [x] The Emulators screen shows both as installed. 2026-10-19: `romshelf emulators` and the Emulators screen show both Installed.
+
 ## Stage 3: download, remove and storage (branch `stage-03-download-delete`)
 
-Status: **built; waiting for on-Deck checks.**
+Status: **on-Deck checks passed 2026-10-19.**
 
 ### Built
 

@@ -17,6 +17,8 @@ pub struct Paths {
     pub rom_root: PathBuf,
     /// `~/.steam/steam`: the Steam installation holding `userdata/`.
     pub steam_root: PathBuf,
+    /// `~/.var/app`: each Flatpak's own data, which its sandbox can always reach.
+    pub flatpak_root: PathBuf,
 }
 
 impl Paths {
@@ -44,6 +46,7 @@ impl Paths {
             config_dir,
             rom_root,
             steam_root,
+            flatpak_root: home.join(".var/app"),
         })
     }
 
@@ -82,7 +85,19 @@ impl Paths {
             config_dir: root.join("config"),
             rom_root: root.join("roms"),
             steam_root: root.join("steam"),
+            flatpak_root: root.join("var-app"),
         }
+    }
+
+    /// A Flatpak's data folder, `~/.var/app/<id>`.
+    pub fn flatpak_app_dir(&self, flatpak_id: &str) -> PathBuf {
+        self.flatpak_root.join(flatpak_id)
+    }
+
+    /// Where the RetroArch Flatpak looks for cores (its default `libretro_directory`).
+    pub fn retroarch_cores_dir(&self) -> PathBuf {
+        self.flatpak_app_dir("org.libretro.RetroArch")
+            .join("config/retroarch/cores")
     }
 
     pub fn db_file(&self) -> PathBuf {
@@ -137,6 +152,8 @@ impl Paths {
             self.config_dir.clone(),
             self.rom_root.clone(),
             self.steam_root.clone(),
+            self.flatpak_root.clone(),
+            self.retroarch_cores_dir(),
             self.db_file(),
             self.log_dir(),
             self.settings_file(),

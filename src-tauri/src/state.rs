@@ -1,11 +1,16 @@
 use romshelf_core::connection::Connection;
 use romshelf_core::db::Database;
 use romshelf_core::drive::{DriveClient, ROOT};
-use romshelf_core::emulators::Registry;
+use romshelf_core::emulators::setup::{self, SetupStep};
+use romshelf_core::emulators::{EmulatorAdapter, Registry, RetroArch};
+use romshelf_core::http::{HttpTransport, ReqwestTransport};
 use romshelf_core::paths::Paths;
+use romshelf_core::process::CommandSpec;
+use romshelf_core::process::{FlatpakRunner, PackageRunner, ProcessRunner, SystemProcessRunner};
+use romshelf_core::saves::{self, SaveChoice};
 use romshelf_core::Result;
 use romshelf_testkit::connection::{simulate_browser, FakeConnection};
-use romshelf_testkit::FakeHttp;
+use romshelf_testkit::{FakeHttp, FakePackageRunner, FakeProcessRunner};
 use serde::Serialize;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -41,6 +46,22 @@ pub struct AppState {
     pub cancel: Arc<AtomicBool>,
     /// A download worker thread is running.
     pub worker_busy: AtomicBool,
+    /// Runs `flatpak` to detect and install emulators.
+    pub runner: Arc<dyn PackageRunner>,
+    /// Starts emulators.
+    pub process: Arc<dyn ProcessRunner>,
+    /// A game is running (or being prepared) from this app; Play waits for it.
+    pub playing: Mutex<Option<String>>,
+    /// The game `romshelf launch` opened the launch window for.
+    pub launch_target: Mutex<Option<String>>,
+    /// Fetches RetroArch cores.
+    pub http: Arc<dyn HttpTransport>,
+    /// Emulator ids whose setup is running.
+    pub setups: Mutex<Vec<String>>,
+    /// This machine's name in save backups.
+    pub device: String,
+    /// Where the answer to a save conflict goes while a launch waits for it.
+    pub save_answer: Mutex<Option<std::sync::mpsc::Sender<SaveChoice>>>,
     /// Keeps fake mode's temp directory alive for the life of the app.
     _fake_root: Option<tempfile::TempDir>,
 }
@@ -67,6 +88,14 @@ impl AppState {
                 sync_lock: Mutex::new(()),
                 cancel: Arc::new(AtomicBool::new(false)),
                 worker_busy: AtomicBool::new(false),
+                runner: Arc::new(FlatpakRunner),
+                process: Arc::new(SystemProcessRunner::default()),
+                playing: Mutex::new(None),
+                launch_target: Mutex::new(None),
+                http: Arc::new(ReqwestTransport::new()?),
+                setups: Mutex::new(Vec::new()),
+                device: saves::device_name(),
+                save_answer: Mutex::new(None),
                 fake_http: None,
                 paths,
                 _fake_root: None,
@@ -103,6 +132,25 @@ impl AppState {
                 )?;
             }
         }
+        // RetroArch is installed and set up (cores in place); Dolphin is not, so its setup
+        // can be tried. The simulated Flatpak installs with visible progress.
+        let mut runner = FakePackageRunner::simulating(&[RetroArch.flatpak_id()]);
+        // A "game" that runs for five seconds and exits normally.
+        let fake_process = FakeProcessRunner::default();
+        for _ in 0..100 {
+            fake_process.push_exit(0, Duration::from_secs(5));
+        }
+        // ...and writes a save, so backups can be seen.
+        fake_process.during_run(write_fake_save);
+        runner.step_delay = Duration::from_millis(300);
+        for core in RetroArch.required_cores() {
+            let file = RetroArch::core_file(&paths, core);
+            std::fs::create_dir_all(file.parent().unwrap_or(&paths.flatpak_root))?;
+            std::fs::write(file, b"ELF fake core")?;
+        }
+        for step in SetupStep::ALL {
+            setup::record_step(&db, &RetroArch, step)?;
+        }
         let FakeConnection {
             connection, http, ..
         } = fake_conn;
@@ -121,9 +169,51 @@ impl AppState {
             sync_lock: Mutex::new(()),
             cancel: Arc::new(AtomicBool::new(false)),
             worker_busy: AtomicBool::new(false),
+            runner: Arc::new(runner),
+            process: Arc::new(fake_process),
+            playing: Mutex::new(None),
+            launch_target: Mutex::new(None),
+            http: Arc::new(FakeHttp::default()),
+            setups: Mutex::new(Vec::new()),
+            device: "fake-deck".into(),
+            save_answer: Mutex::new(None),
             fake_http: Some(http),
             _fake_root: Some(root),
         })
+    }
+}
+
+/// Fake mode's "emulator" saves where Romshelf told it to: RetroArch's game config names the
+/// folder, Dolphin's memory-card folder is on its command line.
+fn write_fake_save(cmd: &CommandSpec) {
+    let arg_after = |flag: &str| {
+        cmd.args
+            .iter()
+            .position(|a| a == flag)
+            .and_then(|i| cmd.args.get(i + 1))
+    };
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let target = if let Some(configs) = arg_after("--appendconfig") {
+        configs.split('|').nth(1).and_then(|cfg| {
+            let text = std::fs::read_to_string(cfg).ok()?;
+            let line = text.lines().find(|l| l.starts_with("savefile_directory"))?;
+            let dir = line.split('"').nth(1)?;
+            Some(std::path::Path::new(dir).join("game.srm"))
+        })
+    } else {
+        cmd.args
+            .iter()
+            .find_map(|a| a.strip_prefix("Dolphin.Core.GCIFolderAPathOverride="))
+            .map(|dir| std::path::Path::new(dir).join("01-FAKE-save.gci"))
+    };
+    if let Some(file) = target {
+        if let Some(dir) = file.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(file, format!("fake progress at {stamp}"));
     }
 }
 

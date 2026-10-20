@@ -1,6 +1,7 @@
 use romshelf_core::drive::{Account, Change, ChangePage, DriveClient, DriveFile, FOLDER_MIME};
 use romshelf_core::{Error, Result};
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 pub(crate) fn md5_hex(bytes: &[u8]) -> String {
@@ -17,6 +18,8 @@ pub const FAKE_ACCOUNT: &str = "player@example.com";
 /// In-memory Drive: a folder tree with a change feed. The root folder id is `root`.
 pub struct FakeDrive {
     state: Mutex<State>,
+    /// While set, every call fails like a Deck with no connection.
+    offline: AtomicBool,
 }
 
 struct State {
@@ -42,6 +45,7 @@ impl Default for FakeDrive {
                 offsets: BTreeMap::new(),
                 fail_after: None,
             }),
+            offline: AtomicBool::new(false),
         }
     }
 }
@@ -91,6 +95,18 @@ impl State {
 }
 
 impl FakeDrive {
+    /// Makes every call fail with a network error until turned back on.
+    pub fn set_offline(&self, offline: bool) {
+        self.offline.store(offline, Ordering::SeqCst);
+    }
+
+    fn online(&self) -> Result<()> {
+        if self.offline.load(Ordering::SeqCst) {
+            return Err(Error::Network("no connection (fake)".into()));
+        }
+        Ok(())
+    }
+
     /// Every file, including trashed ones. For assertions.
     pub fn all_files(&self) -> Vec<DriveFile> {
         self.state.lock().unwrap().files.values().cloned().collect()
@@ -171,6 +187,7 @@ impl FakeDrive {
 
 impl DriveClient for FakeDrive {
     fn about(&self) -> Result<Account> {
+        self.online()?;
         Ok(Account {
             email: FAKE_ACCOUNT.into(),
             name: "Fixture Player".into(),
@@ -178,6 +195,7 @@ impl DriveClient for FakeDrive {
     }
 
     fn create_folder(&self, name: &str, parent: &str) -> Result<DriveFile> {
+        self.online()?;
         self.state
             .lock()
             .unwrap()
@@ -185,6 +203,7 @@ impl DriveClient for FakeDrive {
     }
 
     fn create_file(&self, name: &str, parent: &str, bytes: &[u8]) -> Result<DriveFile> {
+        self.online()?;
         self.state
             .lock()
             .unwrap()
@@ -192,6 +211,7 @@ impl DriveClient for FakeDrive {
     }
 
     fn update_content(&self, id: &str, bytes: &[u8]) -> Result<DriveFile> {
+        self.online()?;
         let mut s = self.state.lock().unwrap();
         if s.files.get(id).is_none_or(DriveFile::is_folder) {
             return Err(Error::NotFound(format!("file {id}")));
@@ -205,6 +225,7 @@ impl DriveClient for FakeDrive {
     }
 
     fn list(&self, parent: &str) -> Result<Vec<DriveFile>> {
+        self.online()?;
         let s = self.state.lock().unwrap();
         Ok(s.files
             .values()
@@ -214,6 +235,7 @@ impl DriveClient for FakeDrive {
     }
 
     fn get(&self, id: &str) -> Result<DriveFile> {
+        self.online()?;
         self.state
             .lock()
             .unwrap()
@@ -224,6 +246,7 @@ impl DriveClient for FakeDrive {
     }
 
     fn rename(&self, id: &str, new_name: &str) -> Result<DriveFile> {
+        self.online()?;
         self.state
             .lock()
             .unwrap()
@@ -231,6 +254,7 @@ impl DriveClient for FakeDrive {
     }
 
     fn move_to(&self, id: &str, new_parent: &str) -> Result<DriveFile> {
+        self.online()?;
         let mut s = self.state.lock().unwrap();
         if new_parent != "root" && !s.files.get(new_parent).is_some_and(DriveFile::is_folder) {
             return Err(Error::NotFound(format!("folder {new_parent}")));
@@ -239,6 +263,7 @@ impl DriveClient for FakeDrive {
     }
 
     fn trash(&self, id: &str) -> Result<()> {
+        self.online()?;
         self.state
             .lock()
             .unwrap()
@@ -247,6 +272,7 @@ impl DriveClient for FakeDrive {
     }
 
     fn download(&self, id: &str, offset: u64) -> Result<Vec<u8>> {
+        self.online()?;
         let s = self.state.lock().unwrap();
         let bytes = s
             .content
@@ -256,6 +282,7 @@ impl DriveClient for FakeDrive {
     }
 
     fn download_to(&self, id: &str, offset: u64, out: &mut dyn std::io::Write) -> Result<u64> {
+        self.online()?;
         let (bytes, fail_after) = {
             let mut s = self.state.lock().unwrap();
             s.offsets.entry(id.into()).or_default().push(offset);
@@ -281,10 +308,12 @@ impl DriveClient for FakeDrive {
     }
 
     fn start_page_token(&self) -> Result<String> {
+        self.online()?;
         Ok(self.state.lock().unwrap().log.len().to_string())
     }
 
     fn changes(&self, token: &str) -> Result<ChangePage> {
+        self.online()?;
         let s = self.state.lock().unwrap();
         let start: usize = token
             .parse()

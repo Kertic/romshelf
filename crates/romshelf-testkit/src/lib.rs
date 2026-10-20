@@ -24,9 +24,48 @@ use std::time::Duration;
 pub struct FakePackageRunner {
     pub calls: Mutex<Vec<Vec<String>>>,
     script: Mutex<VecDeque<CommandOutput>>,
+    /// `Some` when simulating Flatpak (see `simulating`).
+    installed: Mutex<Option<std::collections::BTreeSet<String>>>,
+    /// Pause between simulated progress lines, so an install can be watched.
+    pub step_delay: Duration,
 }
 
 impl FakePackageRunner {
+    /// Unscripted calls behave like Flatpak with these apps installed: `info` answers from the
+    /// set and `install` adds to it, reporting progress. Fake mode uses this.
+    pub fn simulating(installed: &[&str]) -> FakePackageRunner {
+        let runner = FakePackageRunner::default();
+        *runner.installed.lock().unwrap() = Some(installed.iter().map(|s| s.to_string()).collect());
+        runner
+    }
+
+    /// The answer an unscripted call gets.
+    fn simulate(&self, args: &[&str]) -> CommandOutput {
+        let mut installed = self.installed.lock().unwrap();
+        let Some(set) = installed.as_mut() else {
+            return CommandOutput::default();
+        };
+        let id = args.last().copied().unwrap_or_default();
+        match args.first().copied() {
+            Some("info") if !set.contains(id) => CommandOutput {
+                code: 1,
+                stdout: String::new(),
+                stderr: format!("error: {id}/*unspecified*/*unspecified* not installed"),
+            },
+            Some("install") => {
+                set.insert(id.to_string());
+                CommandOutput {
+                    code: 0,
+                    stdout: (1..=10)
+                        .map(|i| format!("Installing {id}… {}%\r", i * 10))
+                        .collect(),
+                    stderr: String::new(),
+                }
+            }
+            _ => CommandOutput::default(),
+        }
+    }
+
     pub fn push_result(&self, code: i32, stdout: &str, stderr: &str) {
         self.script.lock().unwrap().push_back(CommandOutput {
             code,
@@ -46,7 +85,23 @@ impl PackageRunner for FakePackageRunner {
             .lock()
             .unwrap()
             .push(args.iter().map(|s| s.to_string()).collect());
-        Ok(self.script.lock().unwrap().pop_front().unwrap_or_default())
+        let scripted = self.script.lock().unwrap().pop_front();
+        Ok(scripted.unwrap_or_else(|| self.simulate(args)))
+    }
+
+    fn flatpak_streaming(
+        &self,
+        args: &[&str],
+        on_output: &mut dyn FnMut(&str),
+    ) -> Result<CommandOutput> {
+        let out = self.flatpak(args)?;
+        for piece in out.stdout.split(['\r', '\n']).filter(|p| !p.is_empty()) {
+            if !self.step_delay.is_zero() {
+                std::thread::sleep(self.step_delay);
+            }
+            on_output(piece);
+        }
+        Ok(out)
     }
 }
 
@@ -55,11 +110,32 @@ impl PackageRunner for FakePackageRunner {
 pub struct FakeProcessRunner {
     pub runs: Mutex<Vec<CommandSpec>>,
     script: Mutex<VecDeque<(i32, Duration)>>,
+    /// A file to look for each time a program "runs" (the launch lock).
+    watched: Mutex<Option<std::path::PathBuf>>,
+    existed: Mutex<Vec<bool>>,
+    /// Runs while each program "runs", as the emulator would (writing a save, say).
+    during: Mutex<Option<RunHook>>,
 }
+
+type RunHook = Box<dyn FnMut(&CommandSpec) + Send>;
 
 impl FakeProcessRunner {
     pub fn push_exit(&self, code: i32, delay: Duration) {
         self.script.lock().unwrap().push_back((code, delay));
+    }
+
+    /// Records, at each run, whether `path` exists.
+    pub fn watch(&self, path: &Path) {
+        *self.watched.lock().unwrap() = Some(path.to_path_buf());
+    }
+
+    /// Calls `f` during every run, as if the program did it.
+    pub fn during_run(&self, f: impl FnMut(&CommandSpec) + Send + 'static) {
+        *self.during.lock().unwrap() = Some(Box::new(f));
+    }
+
+    pub fn watched_existed(&self) -> Vec<bool> {
+        self.existed.lock().unwrap().clone()
     }
 
     pub fn runs(&self) -> Vec<CommandSpec> {
@@ -70,6 +146,12 @@ impl FakeProcessRunner {
 impl ProcessRunner for FakeProcessRunner {
     fn run_and_wait(&self, cmd: &CommandSpec) -> Result<i32> {
         self.runs.lock().unwrap().push(cmd.clone());
+        if let Some(p) = self.watched.lock().unwrap().as_ref() {
+            self.existed.lock().unwrap().push(p.exists());
+        }
+        if let Some(f) = self.during.lock().unwrap().as_mut() {
+            f(cmd);
+        }
         let (code, delay) = self
             .script
             .lock()
@@ -104,6 +186,14 @@ impl FakeHttp {
                 status,
                 body: body.as_bytes().to_vec(),
             }));
+    }
+
+    /// A response with a binary body, such as a zipped core.
+    pub fn push_bytes(&self, status: u16, body: Vec<u8>) {
+        self.script
+            .lock()
+            .unwrap()
+            .push_back(Scripted::Response(HttpResponse { status, body }));
     }
 
     pub fn push_network_error(&self, message: &str) {

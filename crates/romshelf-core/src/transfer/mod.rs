@@ -288,7 +288,7 @@ impl Downloader<'_> {
     }
 }
 
-fn md5_file(path: &Path) -> Result<String> {
+pub(crate) fn md5_file(path: &Path) -> Result<String> {
     let mut file = std::fs::File::open(path)?;
     let mut hasher = Md5::new();
     let mut buf = vec![0u8; 1024 * 1024];

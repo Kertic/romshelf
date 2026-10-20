@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LibraryEntry, LocationState } from "./api";
 import { tileStatus } from "./Home";
-import { humanSize, progressLine, RomDialog } from "./RomActions";
+import { emulatorLine, humanSize, progressLine, RomDialog } from "./RomActions";
 
 afterEach(cleanup);
 
@@ -22,8 +22,17 @@ function entry(location: LocationState): LibraryEntry {
     system_label: "GBA",
     system_colour: "#1F6B62",
     emulator: "RetroArch",
-    emulator_installed: false,
+    emulator_id: "retroarch",
+    core: "mgba",
+    emulator_installed: true,
+    emulator_ready: true,
+    actions: [
+      { id: "save_states", label: "Save states" },
+      { id: "cheats", label: "Cheats" },
+    ],
     in_steam: false,
+    save: { last_synced_hash: null, last_backup_at: null, last_backup_device: null, pending: false, last_error: null },
+    keeps_states: false,
   };
 }
 
@@ -131,5 +140,106 @@ describe("remove from Deck", () => {
     await act(async () => fireEvent.click(button("Remove from Deck")));
     expect(screen.getByText(/Cancel the download, then remove it/)).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Remove Kirby from this Deck?" })).toBeTruthy();
+  });
+});
+
+describe("emulator setup from a game", () => {
+  it("says which emulator and core run the game", () => {
+    setup({ state: "on_deck" });
+    expect(screen.getByText("Runs in RetroArch with the mGBA core")).toBeTruthy();
+    expect(emulatorLine({ ...entry({ state: "on_deck" }), emulator: "Dolphin", core: null }).text).toBe(
+      "Runs in Dolphin",
+    );
+  });
+
+  it("lists exactly the emulator's own functions", () => {
+    setup({ state: "on_deck" });
+    const group = screen.getByRole("region", { name: "RetroArch functions" });
+    expect([...group.querySelectorAll(".function-row > span:first-child")].map((s) => s.textContent)).toEqual([
+      "Save states",
+      "Cheats",
+    ]);
+  });
+
+  it("offers Set up first when the emulator is missing (screen 2b)", () => {
+    const gc: LibraryEntry = {
+      ...entry({ state: "drive_only" }),
+      emulator: "Dolphin",
+      emulator_id: "dolphin",
+      core: null,
+      emulator_installed: false,
+      emulator_ready: false,
+      actions: [{ id: "memory_cards", label: "Memory cards" }],
+    };
+    const onSetupEmulator = vi.fn();
+    render(
+      <RomDialog
+        entry={gc}
+        onDownload={vi.fn()}
+        onCancel={vi.fn()}
+        onRemove={vi.fn(async () => {})}
+        onSetupEmulator={onSetupEmulator}
+        onClose={vi.fn()}
+        setBack={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Needs Dolphin")).toBeTruthy();
+    const buttons = screen.getAllByRole("button").map((b) => b.textContent);
+    expect(buttons[0]).toBe("Set up Dolphin");
+    expect(screen.getByRole("button", { name: "Download to Deck" }).className).toContain("outline");
+    fireEvent.click(button("Set up Dolphin"));
+    expect(onSetupEmulator).toHaveBeenCalled();
+    expect(screen.getByRole("region", { name: "Dolphin functions" }).textContent).toContain("Memory cards");
+  });
+
+  it("shows setup progress, and a failure with a retry", () => {
+    const gc: LibraryEntry = {
+      ...entry({ state: "drive_only" }),
+      emulator: "Dolphin",
+      emulator_id: "dolphin",
+      emulator_installed: false,
+      emulator_ready: false,
+    };
+    const props = {
+      entry: gc,
+      onDownload: vi.fn(),
+      onCancel: vi.fn(),
+      onRemove: vi.fn(async () => {}),
+      onClose: vi.fn(),
+      setBack: vi.fn(),
+    };
+    const { rerender } = render(
+      <RomDialog {...props} setup={{ step: "Installing", percent: 45, running: true, message: null, failed: false }} />,
+    );
+    expect(screen.getByText("Installing… 45%")).toBeTruthy();
+    expect((button("Set up Dolphin") as HTMLButtonElement).disabled).toBe(true);
+    rerender(
+      <RomDialog
+        {...props}
+        setup={{
+          step: null,
+          percent: null,
+          running: false,
+          failed: true,
+          message: "Couldn't install Dolphin: error: Unable to connect to dl.flathub.org. Try again.",
+        }}
+      />,
+    );
+    expect(screen.getByText(/Unable to connect/)).toBeTruthy();
+    expect(button("Try setting up Dolphin again")).toBeTruthy();
+  });
+
+  it("says when Romshelf can't run a system yet", () => {
+    const ps2: LibraryEntry = {
+      ...entry({ state: "drive_only" }),
+      system_label: "PS2",
+      emulator: null,
+      emulator_id: null,
+      core: null,
+      emulator_ready: false,
+      emulator_installed: false,
+      actions: [],
+    };
+    expect(emulatorLine(ps2)).toEqual({ text: "Romshelf can't run PS2 games yet.", warn: true });
   });
 });

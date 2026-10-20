@@ -23,9 +23,72 @@ export interface LibraryEntry {
   rom: Rom;
   system_label: string;
   system_colour: string;
+  /** The emulator's name, or null when Romshelf can't run this system yet. */
   emulator: string | null;
+  emulator_id: string | null;
+  /** RetroArch's core for this system ("mgba"). */
+  core: string | null;
   emulator_installed: boolean;
+  /** Installed and set up: the game can be played once downloaded. */
+  emulator_ready: boolean;
+  /** The emulator's own functions, for the ROM page. */
+  actions: { id: string; label: string }[];
   in_steam: boolean;
+  /** Last backup, and whether one is owed. */
+  save: SaveSync;
+  /** Romshelf keeps this game's save states (RetroArch). */
+  keeps_states: boolean;
+}
+
+/** Where a game's save stands against Drive. */
+export interface SaveSync {
+  last_synced_hash: string | null;
+  /** Seconds since the epoch. */
+  last_backup_at: number | null;
+  last_backup_device: string | null;
+  /** A backup is owed: the game was played and its save hasn't reached Drive yet. */
+  pending: boolean;
+  last_error: string | null;
+}
+
+/** A backup in Drive. */
+export interface SaveVersion {
+  id: string;
+  taken_at: number;
+  device: string;
+  size: number;
+  emulator: string;
+  core: string | null;
+  hash: string;
+}
+
+export type BackupOutcome = { kind: "uploaded"; version: SaveVersion } | { kind: "unchanged" } | { kind: "no_save" };
+
+export interface RestoreOutcome {
+  version: SaveVersion;
+  /** Set when the save was made with another emulator or core. */
+  warning: string | null;
+}
+
+export interface SaveSide {
+  taken_at: number;
+  device: string;
+}
+
+/** This Deck and Drive both have newer saves (UI guide section 7). */
+export interface SaveConflict {
+  rom_id: string;
+  name: string;
+  deck: SaveSide;
+  drive: SaveSide;
+}
+
+export type SaveChoice = "keep_deck" | "use_drive" | "cancel";
+
+export interface StateSlot {
+  name: string;
+  size: number;
+  modified: number;
 }
 
 export interface AppInfo {
@@ -225,6 +288,127 @@ export async function onTransfer(handler: (e: TransferEvent) => void): Promise<U
   return listen<TransferEvent>("transfer", (e) => handler(e.payload));
 }
 
+export type EmulatorStatus = "not_installed" | "setup_incomplete" | "installed";
+
+export interface EmulatorView {
+  id: string;
+  name: string;
+  /** System labels: "SNES", "GBA", "N64". */
+  systems: string[];
+  status: EmulatorStatus;
+  status_label: string;
+  /** Romshelf is setting it up right now. */
+  setting_up: boolean;
+}
+
+/** Progress while an emulator is set up. */
+export interface SetupUpdate {
+  emulator_id: string;
+  kind: "step" | "progress" | "done" | "failed";
+  step: string | null;
+  percent: number | null;
+  message: string | null;
+}
+
+/** Progress and outcome while a game is prepared and played. */
+export interface LaunchUpdate {
+  rom_id: string;
+  kind: "step" | "progress" | "notice" | "question" | "finished" | "failed";
+  step: "download" | "setup" | "save_check" | "controls" | "run" | "backup" | null;
+  /** "Downloading", "Setting up Dolphin", … */
+  label: string | null;
+  percent: number | null;
+  /** The emulator's exit code, when finished. */
+  code: number | null;
+  message: string | null;
+  /** The save conflict to answer ("question"). */
+  conflict: SaveConflict | null;
+}
+
+/** Starts a game: downloads it and sets up its emulator if needed, then runs it. */
+export async function play(romId: string): Promise<void> {
+  if (inTauri()) await invoke("play", { romId });
+}
+
+/** The game `romshelf launch` opened this window for, or null for the full interface. */
+export async function launchTarget(): Promise<string | null> {
+  if (!inTauri()) {
+    const id = new URLSearchParams(location.search).get("launch");
+    return id;
+  }
+  return invoke<string | null>("launch_target");
+}
+
+export async function onLaunchUpdate(handler: (u: LaunchUpdate) => void): Promise<UnlistenFn> {
+  if (!inTauri()) return () => {};
+  return listen<LaunchUpdate>("launch-update", (e) => handler(e.payload));
+}
+
+/** Answers the save question a launch is waiting on. */
+export async function answerSaveQuestion(choice: SaveChoice): Promise<void> {
+  if (inTauri()) await invoke("answer_save_question", { choice });
+}
+
+const PREVIEW_VERSIONS: SaveVersion[] = [
+  { id: "v2", taken_at: Math.floor(Date.now() / 1000) - 3600, device: "steamdeck", size: 32768, emulator: "retroarch", core: "mgba", hash: "b" },
+  { id: "v1", taken_at: Math.floor(Date.now() / 1000) - 3 * 86400, device: "steamdeck", size: 32768, emulator: "retroarch", core: "mgba", hash: "a" },
+];
+
+/** Backups in Drive, newest first. */
+export async function saveVersions(romId: string): Promise<SaveVersion[]> {
+  if (!inTauri()) return PREVIEW_VERSIONS;
+  return invoke<SaveVersion[]>("save_versions", { romId });
+}
+
+/** "Back up save data". */
+export async function backupSave(romId: string): Promise<BackupOutcome> {
+  if (!inTauri()) return { kind: "uploaded", version: PREVIEW_VERSIONS[0]! };
+  return invoke<BackupOutcome>("backup_save", { romId });
+}
+
+/** Replaces the Deck's save with a backup; the current save is backed up first. */
+export async function restoreSave(romId: string, versionId: string): Promise<RestoreOutcome> {
+  if (!inTauri()) return { version: PREVIEW_VERSIONS.find((v) => v.id === versionId) ?? PREVIEW_VERSIONS[0]!, warning: null };
+  return invoke<RestoreOutcome>("restore_save", { romId, versionId });
+}
+
+export async function saveStates(romId: string): Promise<StateSlot[]> {
+  if (!inTauri()) return [{ name: "Tidewalker.state1", size: 512 * 1024, modified: Math.floor(Date.now() / 1000) - 600 }];
+  return invoke<StateSlot[]>("save_states", { romId });
+}
+
+/** Deletes a save state from the Deck; its Drive copy goes to Drive's trash. */
+export async function deleteSaveState(romId: string, slot: string): Promise<void> {
+  if (inTauri()) await invoke("delete_save_state", { romId, slot });
+}
+
+/** "Backed up Tidewalker", for a toast, when an owed backup reaches Drive in the background. */
+export async function onSaveBackedUp(handler: (message: string) => void): Promise<UnlistenFn> {
+  if (!inTauri()) return () => {};
+  return listen<string>("save-backed-up", (e) => handler(e.payload));
+}
+
+/** Every emulator with its status. Checks Flatpak, so it can take a moment. */
+export async function emulators(): Promise<EmulatorView[]> {
+  if (!inTauri()) {
+    return [
+      { id: "retroarch", name: "RetroArch", systems: ["SNES", "GBA", "N64"], status: "installed", status_label: "Installed", setting_up: false },
+      { id: "dolphin", name: "Dolphin", systems: ["GameCube"], status: "not_installed", status_label: "Not installed", setting_up: false },
+    ];
+  }
+  return invoke<EmulatorView[]>("emulators");
+}
+
+/** Starts installing and setting up an emulator in the background. */
+export async function setupEmulator(emulatorId: string, repair = false): Promise<void> {
+  if (inTauri()) await invoke("setup_emulator", { emulatorId, repair });
+}
+
+export async function onEmulatorSetup(handler: (u: SetupUpdate) => void): Promise<UnlistenFn> {
+  if (!inTauri()) return () => {};
+  return listen<SetupUpdate>("emulator-setup", (e) => handler(e.payload));
+}
+
 /** A newer Romshelf installed in the background this session; it runs from the next start. */
 export async function updateReady(): Promise<string | null> {
   if (!inTauri()) return null;
@@ -265,7 +449,24 @@ function browserPreviewLibrary(): LibraryEntry[] {
     system_label: label,
     system_colour: colour,
     emulator: system === "gamecube" ? "Dolphin" : system === "ps2" ? null : "RetroArch",
+    emulator_id: system === "gamecube" ? "dolphin" : system === "ps2" ? null : "retroarch",
+    core: system === "snes" ? "snes9x" : system === "gba" ? "mgba" : null,
     emulator_installed: system !== "gamecube",
+    emulator_ready: system !== "gamecube" && system !== "ps2",
+    actions:
+      system === "gamecube"
+        ? [{ id: "memory_cards", label: "Memory cards" }, { id: "save_states", label: "Save states" }, { id: "texture_packs", label: "Texture packs" }]
+        : system === "ps2"
+          ? []
+          : [{ id: "save_states", label: "Save states" }, { id: "cheats", label: "Cheats" }, { id: "shaders", label: "Shaders" }],
     in_steam,
+    save: {
+      last_synced_hash: null,
+      last_backup_at: system === "gba" ? Math.floor(Date.now() / 1000) - 3600 : null,
+      last_backup_device: system === "gba" ? "steamdeck" : null,
+      pending: false,
+      last_error: null,
+    },
+    keeps_states: system !== "gamecube" && system !== "ps2",
   }));
 }

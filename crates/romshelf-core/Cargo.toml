@@ -16,9 +16,14 @@ getrandom = "0.3"
 ed25519-dalek = "2"
 md-5 = "0.10"
 fs4 = "0.13"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 # Secret Service on Linux (dbus built from source so the AppImage needs no system libdbus headers).
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "vendored", "windows-native", "apple-native"] }
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+signal-hook = "0.3"
+libc = "0.2"

@@ -520,23 +520,9 @@ pub fn open_browser(url: &str) -> Result<()> {
 
 #[cfg(target_os = "linux")]
 fn browser_command(url: &str) -> std::process::Command {
-    let mut cmd = std::process::Command::new("xdg-open");
-    cmd.arg(url);
     // The AppImage's bundled libraries must not leak into the browser.
-    for var in [
-        "LD_LIBRARY_PATH",
-        "LD_PRELOAD",
-        "GIO_MODULE_DIR",
-        "GDK_PIXBUF_MODULE_FILE",
-        "GTK_PATH",
-        "GTK_EXE_PREFIX",
-        "GTK_DATA_PREFIX",
-        "GSETTINGS_SCHEMA_DIR",
-        "PYTHONHOME",
-        "PYTHONPATH",
-    ] {
-        cmd.env_remove(var);
-    }
+    let mut cmd = crate::process::host_command("xdg-open");
+    cmd.arg(url);
     cmd.stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());

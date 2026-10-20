@@ -81,8 +81,14 @@ describe("tile status", () => {
     system_label: "GBA",
     system_colour: "#1F6B62",
     emulator: "RetroArch",
+    emulator_id: "retroarch",
+    core: "mgba",
     emulator_installed: true,
+    emulator_ready: true,
+    actions: [],
     in_steam: false,
+    save: { last_synced_hash: null, last_backup_at: null, last_backup_device: null, pending: false, last_error: null },
+    keeps_states: false,
   };
   it("follows the guide's wording", () => {
     expect(tileStatus(base).text).toBe("On Deck");

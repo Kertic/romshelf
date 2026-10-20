@@ -2,8 +2,10 @@
 
 mod auth_cli;
 pub mod cli;
+mod emulators_cli;
 mod gamepad;
 mod library_cli;
+mod saves_cmd;
 mod state;
 mod update_cli;
 
@@ -14,9 +16,14 @@ use romshelf_core::clock::{Clock, SystemClock};
 use romshelf_core::connection::{Connection, Folder, Status};
 use romshelf_core::db::Database;
 use romshelf_core::drive::scaffold;
+use romshelf_core::drive::DriveClient;
+use romshelf_core::emulators::setup::{self, EmulatorInfo, SetupContext, SetupEvent};
+use romshelf_core::emulators::Registry;
+use romshelf_core::launch::{self, LaunchContext, LaunchEvent, Step, Target};
 use romshelf_core::library::{self, LibraryEntry};
 use romshelf_core::model::RomId;
 use romshelf_core::paths::Paths;
+use romshelf_core::saves::{SaveChoice, SaveConflict};
 use romshelf_core::storage::{self, DiskSpace, FsDiskSpace};
 use romshelf_core::transfer::{self, Downloader};
 use romshelf_core::update::{self, Outcome};
@@ -41,7 +48,19 @@ const LOGIN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 pub fn run() -> i32 {
     let cli = Cli::parse();
     match cli.command {
-        None => run_interface(),
+        None => match open_state() {
+            Ok(state) => run_interface(state, None),
+            Err(code) => code,
+        },
+        Some(Command::Launch(args)) => {
+            let target = match (args.id, args.rom) {
+                (Some(id), _) => Target::Id(id),
+                (None, Some(rom)) => Target::Rom(rom),
+                (None, None) => unreachable!("clap requires --id or --rom"),
+            };
+            launch_command(target)
+        }
+        Some(Command::Doctor { id: Some(id) }) => doctor_launch(&id),
         Some(Command::Auth(cmd)) => {
             let conn = match Paths::for_app().and_then(|p| Connection::real(&p)) {
                 Ok(c) => c,
@@ -134,6 +153,36 @@ pub fn run() -> i32 {
                 Paths::for_app().and_then(|paths| Ok((Database::open(&paths.db_file())?, paths)));
             match setup {
                 Ok((db, paths)) => library_cli::remove(&db, &paths, &id, &mut std::io::stdout()),
+                Err(e) => {
+                    eprintln!("{}", UiError::from(e).message);
+                    1
+                }
+            }
+        }
+        Some(Command::Emulators { setup }) => {
+            let result = Paths::for_app().and_then(|paths| {
+                let db = Database::open(&paths.db_file())?;
+                let conn = Connection::real(&paths)?;
+                let folder = conn.settings()?.drive;
+                let http = romshelf_core::http::ReqwestTransport::new()?;
+                let ctx = SetupContext {
+                    runner: &romshelf_core::process::FlatpakRunner,
+                    http: &http,
+                    db: &db,
+                    paths: &paths,
+                    drive: folder
+                        .as_ref()
+                        .map(|f| (conn.drive.as_ref() as &dyn DriveClient, &f.layout)),
+                };
+                Ok(emulators_cli::run(
+                    &ctx,
+                    &Registry::default(),
+                    setup.as_deref(),
+                    &mut std::io::stdout(),
+                ))
+            });
+            match result {
+                Ok(code) => code,
                 Err(e) => {
                     eprintln!("{}", UiError::from(e).message);
                     1
@@ -380,6 +429,9 @@ fn run_sync(app: &tauri::AppHandle) -> SyncStatus {
             }
         }
     };
+    if status.state == "synced" {
+        saves_cmd::flush_in_background(app);
+    }
     set_sync_status(app, status.clone());
     status
 }
@@ -519,6 +571,143 @@ struct StorageStatus {
     free: Option<u64>,
 }
 
+/// Runs `f` with a setup context on its own database connection, so a long Flatpak install
+/// never holds the app's shared connection.
+fn with_setup_ctx<T>(
+    state: &AppState,
+    f: impl FnOnce(&SetupContext) -> romshelf_core::Result<T>,
+) -> romshelf_core::Result<T> {
+    let db = Database::open(&state.paths.db_file())?;
+    let folder = state.connection.settings()?.drive;
+    let ctx = SetupContext {
+        runner: state.runner.as_ref(),
+        http: state.http.as_ref(),
+        db: &db,
+        paths: &state.paths,
+        drive: folder
+            .as_ref()
+            .map(|f| (state.connection.drive.as_ref(), &f.layout)),
+    };
+    f(&ctx)
+}
+
+#[derive(Serialize)]
+struct EmulatorView {
+    #[serde(flatten)]
+    info: EmulatorInfo,
+    status_label: &'static str,
+    /// Romshelf is setting it up right now.
+    setting_up: bool,
+}
+
+/// Every emulator with its status, for the Emulators screen. Runs `flatpak info` per emulator.
+#[tauri::command]
+async fn emulators(app: tauri::AppHandle) -> Result<Vec<EmulatorView>, UiError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let busy = state.setups.lock().map(|s| s.clone()).unwrap_or_default();
+        let list = with_setup_ctx(&state, |ctx| setup::list(ctx, &state.registry))?;
+        Ok(list
+            .into_iter()
+            .map(|info| EmulatorView {
+                status_label: info.status.label(),
+                setting_up: busy.contains(&info.id),
+                info,
+            })
+            .collect())
+    })
+    .await
+    .map_err(internal)?
+}
+
+/// What the interface hears while an emulator is set up.
+#[derive(Clone, Serialize)]
+struct SetupUpdate {
+    emulator_id: String,
+    /// "step", "progress", "done" or "failed".
+    kind: &'static str,
+    step: Option<&'static str>,
+    percent: Option<u8>,
+    message: Option<String>,
+}
+
+/// Starts setting up an emulator in the background (`repair` runs every step again). Emits
+/// `emulator-setup` updates, then
+/// `library-changed`. Asking again while it runs does nothing.
+#[tauri::command]
+fn setup_emulator(app: tauri::AppHandle, emulator_id: String, repair: bool) -> Result<(), UiError> {
+    let state = app.state::<AppState>();
+    if state.registry.by_id(&emulator_id).is_none() {
+        return Err(UiError {
+            kind: "error",
+            message: format!("There's no emulator called {emulator_id}."),
+        });
+    }
+    {
+        let mut busy = state.setups.lock().map_err(internal)?;
+        if busy.contains(&emulator_id) {
+            return Ok(());
+        }
+        busy.push(emulator_id.clone());
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let state = app.state::<AppState>();
+        let send = |kind, step, percent, message| {
+            let _ = app.emit(
+                "emulator-setup",
+                SetupUpdate {
+                    emulator_id: emulator_id.clone(),
+                    kind,
+                    step,
+                    percent,
+                    message,
+                },
+            );
+        };
+        let result = with_setup_ctx(&state, |ctx| {
+            let adapter = state
+                .registry
+                .by_id(&emulator_id)
+                .ok_or_else(|| Error::NotFound(emulator_id.clone()))?;
+            if repair {
+                setup::reset(ctx.db, adapter)?;
+            }
+            setup::run_setup(ctx, adapter, &mut |e| match e {
+                SetupEvent::Step { step } => send("step", Some(step.label()), None, None),
+                SetupEvent::Progress { percent } => send("progress", None, Some(percent), None),
+            })
+        });
+        if let Ok(mut busy) = state.setups.lock() {
+            busy.retain(|id| id != &emulator_id);
+        }
+        match result {
+            Ok(report) => {
+                let missing = report.summary();
+                send("done", None, None, (!missing.is_empty()).then_some(missing));
+            }
+            Err(e) => send("failed", None, None, Some(UiError::from(e).message)),
+        }
+        let _ = app.emit("library-changed", ());
+    });
+    Ok(())
+}
+
+/// Brings the database's "installed" flags up to date (an emulator may have been installed or
+/// removed outside Romshelf), then asks the interface to reread the library.
+fn refresh_emulators(app: &tauri::AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let state = app.state::<AppState>();
+        match with_setup_ctx(&state, |ctx| setup::list(ctx, &state.registry)) {
+            Ok(_) => {
+                let _ = app.emit("library-changed", ());
+            }
+            Err(e) => eprintln!("Couldn't check emulators: {e}"),
+        }
+    });
+}
+
 #[tauri::command]
 fn storage_status(state: tauri::State<'_, AppState>) -> StorageStatus {
     let root = state.paths.storage_root();
@@ -537,11 +726,273 @@ fn quit(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+/// Runs `f` with a launch context built from the app state. `ask` answers a save conflict;
+/// `no_answer` when there is no window to ask in.
+fn with_launch_ctx<T>(
+    state: &AppState,
+    ask: &(dyn Fn(&SaveConflict) -> Option<SaveChoice> + Sync),
+    f: impl FnOnce(&LaunchContext) -> romshelf_core::Result<T>,
+) -> romshelf_core::Result<T> {
+    let folder = state.connection.settings()?.drive;
+    let ctx = LaunchContext {
+        db: &state.db,
+        registry: &state.registry,
+        paths: &state.paths,
+        drive: state.connection.drive.as_ref(),
+        layout: folder.as_ref().map(|f| &f.layout),
+        runner: state.runner.as_ref(),
+        http: state.http.as_ref(),
+        process: state.process.as_ref(),
+        space: &FsDiskSpace,
+        cancel: &state.cancel,
+        clock: &SystemClock,
+        retry_delay: DOWNLOAD_RETRY,
+        max_attempts: DOWNLOAD_ATTEMPTS,
+        device: &state.device,
+        ask,
+    };
+    f(&ctx)
+}
+
+/// A launch with no window can't ask about a save conflict.
+fn no_answer(_: &SaveConflict) -> Option<SaveChoice> {
+    None
+}
+
+/// What the interface hears while a game is prepared and played.
+#[derive(Clone, Default, Serialize)]
+struct LaunchUpdate {
+    rom_id: String,
+    /// "step", "progress", "notice", "question", "finished" or "failed".
+    kind: &'static str,
+    step: Option<Step>,
+    /// The step as the launch window shows it: "Downloading", "Setting up Dolphin".
+    label: Option<String>,
+    percent: Option<u8>,
+    /// The emulator's exit code, when finished.
+    code: Option<i32>,
+    message: Option<String>,
+    /// A save conflict to answer with `answer_save_question` ("question").
+    conflict: Option<SaveConflict>,
+}
+
+/// Starts a game: downloads it and sets up its emulator if needed, checks its save, then runs
+/// it. Returns at once; `launch-update` events follow. In the launch window, Romshelf exits
+/// with the emulator's exit code when the game ends.
+#[tauri::command]
+fn play(app: tauri::AppHandle, rom_id: String) -> Result<(), UiError> {
+    {
+        let state = app.state::<AppState>();
+        let mut playing = state.playing.lock().map_err(internal)?;
+        if playing.is_some() {
+            return Ok(());
+        }
+        *playing = Some(rom_id.clone());
+    }
+    std::thread::spawn(move || {
+        let state = app.state::<AppState>();
+        let launching = state
+            .launch_target
+            .lock()
+            .map(|t| t.is_some())
+            .unwrap_or(false);
+        let send = |u: LaunchUpdate| {
+            let _ = app.emit(
+                "launch-update",
+                LaunchUpdate {
+                    rom_id: rom_id.clone(),
+                    ..u
+                },
+            );
+        };
+        // The launch waits here until the interface answers.
+        let ask = |c: &SaveConflict| -> Option<SaveChoice> {
+            let (tx, rx) = std::sync::mpsc::channel();
+            *state.save_answer.lock().ok()? = Some(tx);
+            send(LaunchUpdate {
+                kind: "question",
+                conflict: Some(c.clone()),
+                ..LaunchUpdate::default()
+            });
+            rx.recv().ok()
+        };
+        let target = Target::Id(rom_id.clone());
+        let result = with_launch_ctx(&state, &ask, |ctx| {
+            let emulator = {
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| Error::External(e.to_string()))?;
+                let rom = launch::resolve(&db, &target)?;
+                state.registry.require(rom.system)?.name().to_string()
+            };
+            launch::run(ctx, &target, &mut |e| match e {
+                LaunchEvent::Step { step } => {
+                    // The game takes the screen; the launch window gets out of its way.
+                    if launching && step == Step::Run {
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.hide();
+                        }
+                    }
+                    send(LaunchUpdate {
+                        kind: "step",
+                        step: Some(step),
+                        label: Some(step.label(&emulator)),
+                        ..LaunchUpdate::default()
+                    })
+                }
+                LaunchEvent::Progress { percent } => send(LaunchUpdate {
+                    kind: "progress",
+                    percent: Some(percent),
+                    ..LaunchUpdate::default()
+                }),
+                LaunchEvent::Notice { message } => send(LaunchUpdate {
+                    kind: "notice",
+                    message: Some(message),
+                    ..LaunchUpdate::default()
+                }),
+            })
+        });
+        if let Ok(mut p) = state.playing.lock() {
+            *p = None;
+        }
+        let _ = app.emit("library-changed", ());
+        match result {
+            Ok(code) => {
+                send(LaunchUpdate {
+                    kind: "finished",
+                    code: Some(code),
+                    ..LaunchUpdate::default()
+                });
+                if launching {
+                    // Back to Steam, with the emulator's exit code.
+                    app.exit(code);
+                }
+            }
+            // Cancelled at the save question: the launch window has nothing left to do.
+            Err(Error::Cancelled) if launching => app.exit(1),
+            Err(e) => {
+                if launching {
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.show();
+                    }
+                }
+                send(LaunchUpdate {
+                    kind: "failed",
+                    message: Some(UiError::from(e).message),
+                    ..LaunchUpdate::default()
+                });
+            }
+        }
+    });
+    Ok(())
+}
+
+/// The answer to the save question a launch is waiting on: "keep_deck", "use_drive" or
+/// "cancel".
+#[tauri::command]
+fn answer_save_question(state: tauri::State<'_, AppState>, choice: SaveChoice) {
+    if let Some(tx) = state.save_answer.lock().ok().and_then(|mut s| s.take()) {
+        let _ = tx.send(choice);
+    }
+}
+
+/// The game the launch window is for, if this is one.
+#[tauri::command]
+fn launch_target(state: tauri::State<'_, AppState>) -> Option<String> {
+    state.launch_target.lock().ok().and_then(|t| t.clone())
+}
+
+/// `romshelf launch`: a game that is ready starts at once with no window; otherwise the launch
+/// window shows the download or setup first, or asks about a save conflict. Exits with the
+/// emulator's exit code; 2 when the game isn't known.
+fn launch_command(target: Target) -> i32 {
+    let state = match open_state() {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    let failed = |e: Error| {
+        let code = if matches!(e, Error::NotFound(_)) {
+            2
+        } else {
+            1
+        };
+        eprintln!("{}", UiError::from(e).message);
+        code
+    };
+    let needs_window =
+        match with_launch_ctx(&state, &no_answer, |ctx| launch::needs_window(ctx, &target)) {
+            Ok(n) => n,
+            Err(e) => return failed(e),
+        };
+    if !needs_window {
+        let result = with_launch_ctx(&state, &no_answer, |ctx| {
+            launch::run(ctx, &target, &mut |_| {})
+        });
+        match result {
+            // Only the window can ask which save to keep; nothing has started yet.
+            Err(Error::NeedsAnswer) => {}
+            other => return other.unwrap_or_else(failed),
+        }
+    }
+    let rom_id = {
+        let db = match state.db.lock() {
+            Ok(db) => db,
+            Err(e) => return failed(Error::External(e.to_string())),
+        };
+        match launch::resolve(&db, &target) {
+            Ok(rom) => rom.id.to_string(),
+            Err(e) => return failed(e),
+        }
+    };
+    run_interface(state, Some(rom_id))
+}
+
+/// `romshelf doctor --id`: each step a launch would take, without doing any of it.
+fn doctor_launch(id: &str) -> i32 {
+    let state = match open_state() {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    let target = Target::Id(id.to_string());
+    match with_launch_ctx(&state, &no_answer, |ctx| launch::plan(ctx, &target)) {
+        Ok(steps) => {
+            println!("Launching {id} would:");
+            for (i, s) in steps.iter().enumerate() {
+                println!("  {}. {}", i + 1, s.detail);
+            }
+            0
+        }
+        Err(e) => {
+            let code = if matches!(e, Error::NotFound(_)) {
+                2
+            } else {
+                1
+            };
+            eprintln!("{}", UiError::from(e).message);
+            code
+        }
+    }
+}
+
 fn env_flag(name: &str) -> bool {
     std::env::var(name).is_ok_and(|v| v == "1")
 }
 
-fn run_interface() -> i32 {
+/// Opens Romshelf's data for the interface or a launch; on failure, the exit code.
+fn open_state() -> Result<AppState, i32> {
+    AppState::new(
+        env_flag("ROMSHELF_FAKE"),
+        env_flag("ROMSHELF_FAKE_FIRST_RUN"),
+    )
+    .map_err(|e| {
+        eprintln!("Couldn't open Romshelf's data: {e}");
+        1
+    })
+}
+
+/// The full-screen interface, or with `launch` set, the launch window for that game.
+fn run_interface(state: AppState, launch: Option<String>) -> i32 {
     #[cfg(target_os = "linux")]
     {
         // WebKitGTK's DMA-BUF renderer shows a blank window under gamescope on some drivers.
@@ -549,17 +1000,10 @@ fn run_interface() -> i32 {
             std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
         }
     }
-
-    let state = match AppState::new(
-        env_flag("ROMSHELF_FAKE"),
-        env_flag("ROMSHELF_FAKE_FIRST_RUN"),
-    ) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Couldn't open Romshelf's data: {e}");
-            return 1;
-        }
-    };
+    let launching = launch.is_some();
+    if let Ok(mut t) = state.launch_target.lock() {
+        *t = launch;
+    }
     // Full screen unless asked otherwise; debug builds default to a window for development.
     let fullscreen = if env_flag("ROMSHELF_WINDOWED") {
         false
@@ -584,6 +1028,16 @@ fn run_interface() -> i32 {
             cancel_download,
             remove_from_deck,
             storage_status,
+            emulators,
+            setup_emulator,
+            play,
+            answer_save_question,
+            launch_target,
+            saves_cmd::save_versions,
+            saves_cmd::backup_save,
+            saves_cmd::restore_save,
+            saves_cmd::save_states,
+            saves_cmd::delete_save_state,
             quit
         ])
         .setup(move |app| {
@@ -594,7 +1048,10 @@ fn run_interface() -> i32 {
                 .focused(true)
                 .build()?;
             gamepad::start(app.handle().clone());
-            start_update_check(app.handle().clone());
+            // A launch window is only there to start one game.
+            if !launching {
+                start_update_check(app.handle().clone());
+            }
             // Correct ROM locations against the disk, then resume any downloads.
             {
                 let state = app.state::<AppState>();
@@ -607,6 +1064,10 @@ fn run_interface() -> i32 {
                 }
             }
             start_downloads(app.handle());
+            if !launching {
+                refresh_emulators(app.handle());
+                saves_cmd::flush_in_background(app.handle());
+            }
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.set_focus();
             }

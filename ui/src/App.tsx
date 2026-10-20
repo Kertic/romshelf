@@ -1,23 +1,38 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  answerSaveQuestion,
   appInfo,
+  backupSave,
   cancelDownload,
+  deleteSaveState,
   connectionStatus,
   download,
+  emulators as listEmulators,
+  launchTarget,
   library,
   onLibraryChanged,
   onSyncStatus,
   onTransfer,
+  onEmulatorSetup,
+  onLaunchUpdate,
+  onSaveBackedUp,
   onUpdateReady,
+  play,
   quit,
   removeFromDeck,
+  restoreSave,
+  saveStates,
+  saveVersions,
+  setupEmulator,
   storageStatus,
   syncNow,
   syncStatus,
   updateReady,
   type AppInfo,
+  type EmulatorView,
   type ConnectionStatus,
   type LibraryEntry,
+  type SaveChoice,
   type Progress,
   type StorageStatus,
   type SyncStatus,
@@ -26,13 +41,15 @@ import { FirstRun, type BackAction } from "./FirstRun";
 import { focusables, moveFocus, type Direction } from "./focus";
 import { Footer, type Hint } from "./Footer";
 import { GamepadSpike } from "./GamepadSpike";
+import { Emulators, type SetupState } from "./Emulators";
+import { LaunchWindow, type LaunchState } from "./LaunchWindow";
 import { Home } from "./Home";
 import type { Button } from "./input";
 import { nextTab } from "./library";
-import { RomDialog } from "./RomActions";
+import { RomDialog, type SaveActions } from "./RomActions";
 import { useInput } from "./useInput";
 
-type Screen = "loading" | "first-run" | "home" | "spike";
+type Screen = "loading" | "first-run" | "home" | "emulators" | "launch" | "spike";
 
 const HOLD_TO_LEAVE_MS = 1000;
 
@@ -55,6 +72,19 @@ export function App() {
   /** The last thing that went wrong with each game's download. */
   const [transferErrors, setTransferErrors] = useState<Record<string, string>>({});
   const [storage, setStorage] = useState<StorageStatus | null>(null);
+  const [emulatorList, setEmulatorList] = useState<EmulatorView[] | null>(null);
+  const [emulatorError, setEmulatorError] = useState<string | null>(null);
+  /** Emulator setups running or just finished, by emulator id. */
+  const [setups, setSetups] = useState<Record<string, SetupState>>({});
+  /** A game being prepared or played, from Play or the launch window. */
+  const [launch, setLaunch] = useState<LaunchState | null>(null);
+  /** A one-line toast ("Backed up Tidewalker"), shown for four seconds. */
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
   const setBack = useCallback((b: BackAction | null) => {
     backRef.current = b;
     setBackState(b);
@@ -114,6 +144,110 @@ export function App() {
     };
   }, []);
 
+  const loadEmulators = useCallback(() => {
+    setEmulatorError(null);
+    listEmulators()
+      .then(setEmulatorList)
+      .catch((e) => setEmulatorError(e?.message ?? `Couldn't check the emulators: ${String(e)}. Try again.`));
+  }, []);
+
+  // Emulator setup progress; a finished setup changes the library's "Needs …" too.
+  useEffect(() => {
+    let live = true;
+    let unlisten: (() => void) | null = null;
+    onEmulatorSetup((u) => {
+      setSetups((all) => {
+        const prev = all[u.emulator_id];
+        const running = u.kind === "step" || u.kind === "progress";
+        return {
+          ...all,
+          [u.emulator_id]: {
+            step: u.kind === "step" ? u.step : (prev?.step ?? null),
+            percent: u.kind === "progress" ? u.percent : u.kind === "step" ? null : (prev?.percent ?? null),
+            running,
+            message: running ? null : u.message,
+            failed: u.kind === "failed",
+          },
+        };
+      });
+      if (u.kind === "done" || u.kind === "failed") loadEmulators();
+    }).then((un) => (live ? (unlisten = un) : un()));
+    return () => {
+      live = false;
+      unlisten?.();
+    };
+  }, [loadEmulators]);
+
+  // Progress while a game is prepared; a finished game clears it, a failure keeps the reason.
+  useEffect(() => {
+    let live = true;
+    let unlisten: (() => void) | null = null;
+    onLaunchUpdate((u) => {
+      if (u.kind === "notice") {
+        if (u.message) setToast(u.message);
+        return;
+      }
+      setLaunch((cur) => {
+        if (u.kind === "finished") return null;
+        const base: LaunchState = cur?.romId === u.rom_id ? cur : { romId: u.rom_id, label: null, percent: null, running: true, error: null };
+        if (u.kind === "failed") return { ...base, running: false, error: u.message ?? "The game couldn't start. Try again." };
+        if (u.kind === "question") return { ...base, conflict: u.conflict };
+        if (u.kind === "step") return { ...base, label: u.label, percent: null, running: true, error: null };
+        return { ...base, percent: u.percent };
+      });
+    }).then((un) => (live ? (unlisten = un) : un()));
+    return () => {
+      live = false;
+      unlisten?.();
+    };
+  }, []);
+
+  const startPlay = useCallback((romId: string) => {
+    setLaunch({ romId, label: null, percent: null, running: true, error: null });
+    play(romId).catch((e) =>
+      setLaunch({ romId, label: null, percent: null, running: false, error: e?.message ?? `Couldn't start the game: ${String(e)}` }),
+    );
+  }, []);
+
+  // Owed backups that reach Drive in the background.
+  useEffect(() => {
+    let live = true;
+    let unlisten: (() => void) | null = null;
+    onSaveBackedUp((m) => setToast(m)).then((un) => (live ? (unlisten = un) : un()));
+    return () => {
+      live = false;
+      unlisten?.();
+    };
+  }, []);
+
+  const answerSave = useCallback((choice: SaveChoice) => {
+    setLaunch((cur) => (cur ? { ...cur, conflict: null } : cur));
+    void answerSaveQuestion(choice);
+  }, []);
+
+  const startSetup = useCallback((id: string, repair = false) => {
+    setSetups((all) => ({ ...all, [id]: { step: "Starting", percent: null, running: true, message: null, failed: false } }));
+    setupEmulator(id, repair).catch((e) =>
+      setSetups((all) => ({
+        ...all,
+        [id]: { step: null, percent: null, running: false, failed: true, message: e?.message ?? String(e) },
+      })),
+    );
+  }, []);
+
+  const openEmulators = useCallback(() => {
+    setScreen("emulators");
+    // B goes back to the Library.
+    setBack({
+      label: "Library",
+      run: () => {
+        setBack(null);
+        setScreen("home");
+      },
+    });
+    loadEmulators();
+  }, [loadEmulators, setBack]);
+
   // A newer build may finish downloading at any time while Romshelf is open.
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -168,18 +302,24 @@ export function App() {
       });
   }, [startSync]);
   useEffect(() => {
-    Promise.all([appInfo(), connectionStatus()])
-      .then(([i, s]) => {
+    Promise.all([appInfo(), connectionStatus(), launchTarget()])
+      .then(([i, s, target]) => {
         setInfo(i);
         setStatus(s);
-        if (s.ready) openLibrary();
+        if (target) {
+          // Opened by `romshelf launch`: just this game, then back to Steam.
+          setScreen("launch");
+          library().then(setEntries).catch(() => {});
+          startPlay(target);
+          setBack({ label: "Cancel", run: () => { void cancelDownload(target).finally(() => void quit()); } });
+        } else if (s.ready) openLibrary();
         else setScreen("first-run");
       })
       .catch((e) => {
         setError(`Couldn't read Romshelf's settings: ${String(e)}. Restart Romshelf.`);
         setScreen("home");
       });
-  }, [openLibrary]);
+  }, [openLibrary, startPlay, setBack]);
 
   // Read the hints from whatever holds focus: after pad moves, and on touch or mouse focus.
   const syncHint = useCallback(() => {
@@ -223,6 +363,17 @@ export function App() {
     const t = setTimeout(() => setScreen("home"), HOLD_TO_LEAVE_MS);
     return () => clearTimeout(t);
   }, [holdingB]);
+  // The Emulators screen: focus starts on the first emulator's button.
+  useEffect(() => {
+    if (screen !== "emulators") return;
+    const t = setTimeout(() => {
+      if (document.activeElement && document.activeElement !== document.body) return;
+      (document.querySelector<HTMLElement>(".emulator-row button:not([disabled])") ?? focusables()[0])?.focus();
+      syncHint();
+    });
+    return () => clearTimeout(t);
+  }, [screen, emulatorList, syncHint]);
+
   const focusedTab = useRef<string | null>(null);
   useEffect(() => {
     if (screen !== "home") {
@@ -242,6 +393,18 @@ export function App() {
     return () => clearTimeout(timer);
   }, [screen, entries, tab, syncHint]);
   const dialogEntry = dialogRom ? (entries?.find((e) => e.rom.id === dialogRom) ?? null) : null;
+  // The open game's save actions; a change to its save reads the library again.
+  const dialogSaves = useMemo<SaveActions | null>(() => {
+    if (!dialogRom) return null;
+    const after = <T,>(p: Promise<T>) => p.finally(reloadLibrary);
+    return {
+      backup: () => after(backupSave(dialogRom)),
+      versions: () => saveVersions(dialogRom),
+      restore: (versionId: string) => after(restoreSave(dialogRom, versionId)),
+      states: () => saveStates(dialogRom),
+      deleteState: (slot: string) => deleteSaveState(dialogRom, slot),
+    };
+  }, [dialogRom, reloadLibrary]);
   const hints: Hint[] =
     screen === "spike"
       ? [{ glyph: "B", label: "Hold to go back" }]
@@ -270,6 +433,7 @@ export function App() {
           storage={storage}
           onOpen={setDialogRom}
           onOpenSpike={() => setScreen("spike")}
+          onOpenEmulators={openEmulators}
           onQuit={() => void quit()}
         />
       )}
@@ -286,11 +450,47 @@ export function App() {
             closeDialog();
             reloadLibrary();
           }}
+          onSetupEmulator={() => dialogEntry.emulator_id && startSetup(dialogEntry.emulator_id)}
+          onPlay={() => startPlay(dialogEntry.rom.id)}
+          launch={launch?.romId === dialogEntry.rom.id ? launch : undefined}
+          setup={dialogEntry.emulator_id ? setups[dialogEntry.emulator_id] : undefined}
+          saves={dialogSaves ?? undefined}
+          onAnswer={answerSave}
           onClose={closeDialog}
           setBack={setBack}
         />
       )}
+      {screen === "launch" && launch && (
+        <LaunchWindow
+          entry={entries?.find((e) => e.rom.id === launch.romId) ?? null}
+          launch={launch}
+          onRetry={() => startPlay(launch.romId)}
+          onAnswer={answerSave}
+          onOpenRomshelf={() => {
+            setBack(null);
+            setLaunch(null);
+            openLibrary();
+          }}
+        />
+      )}
+      {screen === "emulators" && (
+        <Emulators
+          list={emulatorList}
+          error={emulatorError}
+          setups={setups}
+          onSetup={startSetup}
+          onBack={() => {
+            setBack(null);
+            setScreen("home");
+          }}
+        />
+      )}
       {screen === "spike" && <GamepadSpike input={input} holdingB={holdingB} />}
+      {toast && (
+        <div className="toast" role="status">
+          {toast}
+        </div>
+      )}
       <Footer hints={hints} />
     </div>
   );
