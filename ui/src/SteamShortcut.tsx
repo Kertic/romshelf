@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Applied, ArtSlot, ImageFile, ShortcutView } from "./api";
 import type { BackAction } from "./FirstRun";
 import { useDialogFocus } from "./RomActions";
+import { TextField } from "./Keyboard";
 
 interface Props {
   view: ShortcutView;
@@ -52,17 +53,10 @@ export function SteamShortcut({ view, setBack, onBack, onSave, onAutoAdd, onArtw
       <h1 className="screen-title">Steam shortcut</h1>
       <div className="shortcut-body">
         <div className="shortcut-main">
-          <label className="field">
+          <div className="field">
             <span className="group-label">Name in Steam</span>
-            <input
-              className="text-input"
-              data-focusable
-              data-hint="Edit"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              aria-label="Name in Steam"
-            />
-          </label>
+            <TextField label="Name in Steam" value={name} onChange={setName} />
+          </div>
 
           <section aria-label="Artwork">
             <h2 className="group-label">Artwork</h2>

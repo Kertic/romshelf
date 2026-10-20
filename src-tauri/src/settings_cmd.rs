@@ -260,3 +260,19 @@ pub(crate) fn transfers(state: tauri::State<'_, AppState>) -> Result<Vec<Transfe
     }
     Ok(out)
 }
+
+/// Asks Steam to show its on-screen keyboard (`steam://open/keyboard`), for a text field.
+/// Works when Romshelf runs under Steam; elsewhere nothing happens, and the in-app keyboard is
+/// there instead. Confirm under Game Mode on the Deck.
+#[tauri::command]
+pub(crate) fn open_steam_keyboard(state: tauri::State<'_, AppState>) {
+    if state.fake {
+        return;
+    }
+    let _ = romshelf_core::process::host_command("xdg-open")
+        .arg("steam://open/keyboard")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+}

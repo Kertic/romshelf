@@ -742,3 +742,8 @@ export async function transfers(): Promise<TransferRow[]> {
   if (!inTauri()) return [];
   return invoke<TransferRow[]>("transfers");
 }
+
+/** Asks Steam to show its on-screen keyboard. */
+export async function openSteamKeyboard(): Promise<void> {
+  if (inTauri()) await invoke("open_steam_keyboard");
+}

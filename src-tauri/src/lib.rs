@@ -1089,6 +1089,7 @@ fn run_interface(state: AppState, launch: Option<String>) -> i32 {
             settings_cmd::check_for_updates,
             settings_cmd::diagnostics,
             settings_cmd::transfers,
+            settings_cmd::open_steam_keyboard,
             quit
         ])
         .setup(move |app| {

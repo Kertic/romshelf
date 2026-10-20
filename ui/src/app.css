@@ -1152,3 +1152,48 @@ button:focus {
     opacity: 0.55;
   }
 }
+
+/* Text fields and Romshelf's own on-screen keyboard. */
+.text-field {
+  display: flex;
+  gap: 8px;
+}
+.text-field .text-input {
+  flex: 1;
+}
+.dialog.keyboard {
+  width: 640px;
+}
+.keyboard-text {
+  display: flex;
+  align-items: center;
+  min-height: var(--target-min);
+}
+.caret {
+  color: var(--accent);
+}
+.key-row {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+.key {
+  min-width: var(--target-min);
+  min-height: var(--target-min);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-row);
+  background: var(--raised);
+  font-size: 16px;
+}
+.key:focus {
+  outline: 2px solid var(--accent);
+}
+.key.wide {
+  min-width: 100px;
+}
+.key.space {
+  flex: 1;
+}
+.key.on {
+  border-color: var(--accent);
+}
