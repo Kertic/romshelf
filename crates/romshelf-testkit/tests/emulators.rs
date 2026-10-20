@@ -370,6 +370,7 @@ impl EmulatorAdapter for NeedsBios {
         &self,
         _layout: &romshelf_core::emulators::ControlLayout,
         _rom: &romshelf_core::model::Rom,
+        _paths: &Paths,
     ) -> romshelf_core::Result<()> {
         Ok(())
     }

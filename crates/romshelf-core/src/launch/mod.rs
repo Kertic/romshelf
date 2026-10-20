@@ -2,10 +2,11 @@
 //! button and `romshelf doctor --id` share.
 //!
 //! Find the game; download it if it isn't on the Deck; set up its emulator if needed; check its
-//! save against Drive; write controls (stage 7); start the emulator and wait; back up the save.
+//! save against Drive; write its controls; start the emulator and wait; back up the save.
 //! The emulator's exit code is returned unchanged, whatever happens to the backup.
 
 use crate::clock::Clock;
+use crate::controls;
 use crate::db::Database;
 use crate::drive::scaffold::DriveLayout;
 use crate::drive::DriveClient;
@@ -236,7 +237,7 @@ pub fn plan(ctx: &LaunchContext, target: &Target) -> Result<Vec<PlannedStep>> {
     });
     out.push(PlannedStep {
         step: Step::Controls,
-        detail: "Write this game's controls (arrives with controls)".into(),
+        detail: "Write this game's controls: the emulator's default with its differences".into(),
     });
     let cmd = adapter.launch_command(&rom, &session, ctx.paths)?;
     out.push(PlannedStep {
@@ -323,10 +324,16 @@ pub fn run(
     // Owed until the backup after the game succeeds, even if Romshelf is ended with the game.
     saves::mark_pending(&ctx.db(), &rom.id)?;
 
-    // Stage 7 fills this in.
+    // The game's layout: the emulator's default with this game's differences.
     events(LaunchEvent::Step {
         step: Step::Controls,
     });
+    let layout = controls::store::effective(
+        &ctx.db(),
+        &controls::Scope::new(adapter.id(), rom.system),
+        &rom.id,
+    )?;
+    adapter.write_controls(&layout, &rom, ctx.paths)?;
 
     events(LaunchEvent::Step { step: Step::Run });
     let rom = resolve(&ctx.db(), &Target::Id(rom.id.to_string()))?;

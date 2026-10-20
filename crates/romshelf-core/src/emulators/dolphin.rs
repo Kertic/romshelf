@@ -161,7 +161,8 @@ impl EmulatorAdapter for Dolphin {
             .join(rom.id.as_str())
     }
 
-    fn write_controls(&self, _layout: &ControlLayout, _rom: &Rom) -> Result<()> {
+    /// Dolphin's controller profile: still to come in stage 7.
+    fn write_controls(&self, _layout: &ControlLayout, _rom: &Rom, _paths: &Paths) -> Result<()> {
         Ok(())
     }
 

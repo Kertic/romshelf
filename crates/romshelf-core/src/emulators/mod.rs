@@ -142,8 +142,8 @@ pub trait EmulatorAdapter: Send + Sync {
         std::fs::create_dir_all(self.save_dir(rom, paths))?;
         Ok(())
     }
-    /// Render the merged layout into the emulator's own configuration. Implemented in stage 7.
-    fn write_controls(&self, layout: &ControlLayout, rom: &Rom) -> Result<()>;
+    /// Writes the game's merged layout into Romshelf's session configuration for it.
+    fn write_controls(&self, layout: &ControlLayout, rom: &Rom, paths: &Paths) -> Result<()>;
     fn declared_actions(&self) -> Vec<DeclaredAction>;
 }
 

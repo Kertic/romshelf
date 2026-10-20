@@ -376,3 +376,98 @@ fn layouts_follow_the_user_to_another_deck_through_drive() {
         .collect();
     assert_eq!(names, ["retroarch-gba.json"]);
 }
+
+// RetroArch
+
+use romshelf_core::controls::retroarch;
+use std::path::PathBuf;
+
+fn fixture(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures/retroarch")
+        .join(name)
+}
+
+/// Compares with a golden file; `ROMSHELF_BLESS=1` writes it instead.
+fn golden(name: &str, actual: &str) {
+    let path = fixture(name);
+    if std::env::var("ROMSHELF_BLESS").as_deref() == Ok("1") {
+        std::fs::write(&path, actual).unwrap();
+    }
+    let expected = std::fs::read_to_string(&path)
+        .unwrap()
+        .replace("\r\n", "\n");
+    assert_eq!(actual, expected, "{name} differs");
+}
+
+/// Swapped A and B, fast forward on L4 (as the default), and R4 cleared.
+fn tidewalker() -> Layout {
+    let game = from_pairs(&[("a", Some("b")), ("b", Some("a")), ("r4", None)]).unwrap();
+    merge(&defaults::built_in(&gba()), &game)
+}
+
+#[test]
+fn retroarch_golden_gba_default() {
+    golden(
+        "gba-default.cfg",
+        &retroarch::config(System::Gba, &defaults::built_in(&gba())),
+    );
+}
+
+#[test]
+fn retroarch_golden_gba_with_differences() {
+    golden(
+        "gba-tidewalker.cfg",
+        &retroarch::config(System::Gba, &tidewalker()),
+    );
+}
+
+#[test]
+fn retroarch_golden_n64_default() {
+    let n64 = Scope::new("retroarch", System::N64);
+    golden(
+        "n64-default.cfg",
+        &retroarch::config(System::N64, &defaults::built_in(&n64)),
+    );
+}
+
+#[test]
+fn retroarch_settings_are_names_retroarch_itself_writes() {
+    let known: Vec<String> = std::fs::read_to_string(fixture("input-keys.txt"))
+        .unwrap()
+        .lines()
+        .filter(|l| !l.starts_with('#'))
+        .map(String::from)
+        .collect();
+    for line in retroarch::config(System::Gba, &tidewalker())
+        .lines()
+        .skip(1)
+    {
+        let key = line.split(" = ").next().unwrap();
+        assert!(
+            known.iter().any(|k| k == key),
+            "{key} isn't a RetroArch setting"
+        );
+    }
+}
+
+#[test]
+fn retroarch_buttons_match_the_steam_virtual_gamepad() {
+    // RetroArch's own autoconfig for the pad Steam gives games: Deck A is button 0, B 1.
+    let auto = std::fs::read_to_string(fixture("steam-virtual-gamepad.cfg")).unwrap();
+    assert!(auto.contains("input_b_btn = \"0\"") && auto.contains("input_a_btn = \"1\""));
+    let cfg = retroarch::config(System::Gba, &tidewalker());
+    // Swapped for this game: Deck A (0) drives the GBA's B, Deck B (1) its A.
+    assert!(cfg.contains("input_player1_b_btn = \"0\"\n"));
+    assert!(cfg.contains("input_player1_a_btn = \"1\"\n"));
+    // The D-pad and the left stick both move.
+    assert!(cfg.contains("input_player1_up_btn = \"11\"\n"));
+    assert!(cfg.contains("input_player1_up_axis = \"-1\"\n"));
+    // Grips are keys: L4 sends F9.
+    assert!(cfg.contains("input_toggle_fast_forward = \"f9\"\n"));
+    assert!(cfg.contains("input_rewind = \"nul\"\n"));
+    // Nothing waits for a hotkey-enable button, and no other hotkey is left on a button.
+    assert!(cfg.contains("input_enable_hotkey_btn = \"nul\"\n"));
+    assert!(cfg.contains("input_fps_toggle_btn = \"nul\"\n"));
+    assert!(cfg.contains("input_autodetect_enable = \"false\"\n"));
+}

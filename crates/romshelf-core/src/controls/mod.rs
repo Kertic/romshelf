@@ -6,6 +6,7 @@
 pub mod defaults;
 pub mod merge;
 pub mod model;
+pub mod retroarch;
 pub mod store;
 
 pub use merge::{difference, merge, promote};
