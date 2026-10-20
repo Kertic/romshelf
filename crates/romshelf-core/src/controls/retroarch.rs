@@ -1,12 +1,16 @@
-//! A merged layout as RetroArch settings, appended after Romshelf's own for one game.
+//! A merged layout as RetroArch settings for one game: a controls config appended after
+//! Romshelf's own, and a remap file.
 //!
-//! Inputs are numbered as RetroArch's SDL2 driver sees Steam's virtual gamepad (checked against
-//! its `Steam Virtual Gamepad.cfg` autoconfig on the Deck). The back grips reach RetroArch as
-//! the keys Romshelf's Steam Input layout makes them send.
+//! Each Deck button is bound to its own RetroPad slot, by position, as RetroArch's
+//! `Steam Virtual Gamepad.cfg` autoconfig on the Deck numbers them (so RetroArch's menu works
+//! as usual). The remap file then sends each slot to the game button the layout chooses, which
+//! lets any number of Deck buttons drive one game button. RetroArch 1.19.1 reads it from
+//! `<input_remapping_directory>/<core name>/<core name>.rmp` (its own source, `configuration.c`),
+//! and each game gets its own remap folder, so the file never depends on the ROM's name.
 //!
-//! Every RetroPad bind and every hotkey is written, so nothing falls back to the device's
-//! autoconfig or the user's own hotkeys (EmuDeck's need View held, and its button hotkeys would
-//! fire on a single press without it).
+//! The back grips reach RetroArch as the keys Romshelf's Steam Input layout makes them send.
+//! Every hotkey is written, so nothing falls back to the user's own (EmuDeck's need View held,
+//! and its button hotkeys would fire on a single press without it).
 
 use super::model::Layout;
 use crate::model::{Binding, System};
@@ -85,90 +89,61 @@ pub const ALL_HOTKEYS: &[&str] = &[
     "input_volume_up",
 ];
 
-/// RetroPad buttons, in the order RetroArch writes them.
-const RETROPAD: &[&str] = &[
+/// RetroPad slots, in RetroArch's order; a slot's number is its id in a remap file.
+const SLOTS: &[&str] = &[
     "b", "y", "select", "start", "up", "down", "left", "right", "a", "x", "l", "r", "l2", "r2",
     "l3", "r3",
 ];
-const ANALOG: &[&str] = &[
-    "l_x_plus",
-    "l_x_minus",
-    "l_y_plus",
-    "l_y_minus",
-    "r_x_plus",
-    "r_x_minus",
-    "r_y_plus",
-    "r_y_minus",
+/// Analog directions, ids 16 to 23 in a remap file.
+const STICKS: &[&str] = &[
+    "l_x+", "l_x-", "l_y+", "l_y-", "r_x+", "r_x-", "r_y+", "r_y-",
 ];
 
-/// How a Deck input reaches RetroArch.
+fn slot_id(slot: &str) -> Option<usize> {
+    SLOTS
+        .iter()
+        .position(|s| *s == slot)
+        .or_else(|| STICKS.iter().position(|s| *s == slot).map(|i| i + 16))
+}
+
+/// How a Deck button reaches RetroArch, and the RetroPad slot it's bound to by position.
 #[derive(Clone, Copy)]
 enum Source {
     Button(&'static str),
     Axis(&'static str),
-    Key(&'static str),
 }
 
-impl Source {
-    fn suffix(self) -> &'static str {
-        match self {
-            Source::Button(_) => "_btn",
-            Source::Axis(_) => "_axis",
-            Source::Key(_) => "",
-        }
-    }
-    fn value(self) -> &'static str {
-        match self {
-            Source::Button(v) | Source::Axis(v) | Source::Key(v) => v,
-        }
-    }
-}
-
-fn button_source(input: &str) -> Option<Source> {
+fn physical(input: &str) -> Option<(&'static str, Source)> {
     Some(match input {
-        "a" => Source::Button("0"),
-        "b" => Source::Button("1"),
-        "x" => Source::Button("2"),
-        "y" => Source::Button("3"),
-        "view" => Source::Button("4"),
-        "menu" => Source::Button("6"),
-        "l3" => Source::Button("7"),
-        "r3" => Source::Button("8"),
-        "l1" => Source::Button("9"),
-        "r1" => Source::Button("10"),
-        "l2" => Source::Axis("+4"),
-        "r2" => Source::Axis("+5"),
-        other => Source::Key(GRIP_KEYS.iter().find(|(i, _)| *i == other)?.1),
-    })
-}
-
-/// Up, down, left, right of a directional input.
-fn directions(input: &str) -> Option<[Source; 4]> {
-    Some(match input {
-        "dpad" => [
-            Source::Button("11"),
-            Source::Button("12"),
-            Source::Button("13"),
-            Source::Button("14"),
-        ],
-        "left_stick" => [
-            Source::Axis("-1"),
-            Source::Axis("+1"),
-            Source::Axis("-0"),
-            Source::Axis("+0"),
-        ],
-        "right_stick" => [
-            Source::Axis("-3"),
-            Source::Axis("+3"),
-            Source::Axis("-2"),
-            Source::Axis("+2"),
-        ],
+        "a" => ("b", Source::Button("0")),
+        "b" => ("a", Source::Button("1")),
+        "x" => ("y", Source::Button("2")),
+        "y" => ("x", Source::Button("3")),
+        "view" => ("select", Source::Button("4")),
+        "menu" => ("start", Source::Button("6")),
+        "l3" => ("l3", Source::Button("7")),
+        "r3" => ("r3", Source::Button("8")),
+        "l1" => ("l", Source::Button("9")),
+        "r1" => ("r", Source::Button("10")),
+        "l2" => ("l2", Source::Axis("+4")),
+        "r2" => ("r2", Source::Axis("+5")),
         _ => return None,
     })
 }
 
-/// Where a system's button lands on the RetroPad, as its core reads it. A direction target is
-/// `dirs` (the RetroPad's D-pad) or an analog stick, `l` or `r`.
+/// The button number Romshelf's hotkey bindings use for a Deck button.
+fn hotkey_source(input: &str) -> Option<(&'static str, &'static str)> {
+    if let Some(key) = GRIP_KEYS.iter().find(|(i, _)| *i == input) {
+        return Some(("", key.1));
+    }
+    match physical(input)? {
+        (_, Source::Button(n)) => Some(("_btn", n)),
+        (_, Source::Axis(n)) => Some(("_axis", n)),
+    }
+}
+
+/// Where a game button lands on the RetroPad, as its core reads it. A direction target is
+/// `dirs` (the D-pad) or an analog stick, `l` or `r`.
 fn retropad(system: System, target: &str) -> Option<&'static str> {
     Some(match (system, target) {
         (_, "dpad") => "dirs",
@@ -195,45 +170,106 @@ fn retropad(system: System, target: &str) -> Option<&'static str> {
     })
 }
 
-/// The settings for one game: `input_player1_*` binds and hotkeys. An unbound RetroPad button
-/// is `nul`. When two inputs of the same kind drive one button, the first in the layout wins.
-pub fn config(system: System, layout: &Layout) -> String {
+/// Up, down, left, right of a direction target, as remap ids.
+fn direction_ids(pad: &str) -> [usize; 4] {
+    match pad {
+        "l" => [19, 18, 17, 16],
+        "r" => [23, 22, 21, 20],
+        _ => [4, 5, 6, 7],
+    }
+}
+
+/// Up, down, left, right of a directional Deck input: the remap keys that carry it.
+fn direction_keys(input: &str) -> Option<[&'static str; 4]> {
+    Some(match input {
+        "dpad" => ["btn_up", "btn_down", "btn_left", "btn_right"],
+        "left_stick" => ["stk_l_y-", "stk_l_y+", "stk_l_x-", "stk_l_x+"],
+        "right_stick" => ["stk_r_y-", "stk_r_y+", "stk_r_x-", "stk_r_x+"],
+        _ => return None,
+    })
+}
+
+/// The core's name as RetroArch uses it for the remap folder, from its info file on the Deck.
+pub fn core_name(core: &str) -> Option<&'static str> {
+    Some(match core {
+        "mgba" => "mGBA",
+        "snes9x" => "Snes9x",
+        "mupen64plus_next" => "Mupen64Plus-Next",
+        _ => return None,
+    })
+}
+
+/// The grips bound to game buttons, each given the slot of a Deck button the layout leaves
+/// unbound (whose physical button is then not bound, so it can't press it).
+fn grip_slots(layout: &Layout) -> Vec<(&'static str, &'static str, String)> {
+    let mut free: Vec<&'static str> = ["x", "y", "l3", "r3", "view", "l1", "r1", "a", "b", "menu"]
+        .iter()
+        .filter(|i| matches!(layout.get(**i), None | Some(Binding::Cleared)))
+        .filter_map(|i| physical(i).map(|(slot, _)| slot))
+        .collect();
+    let mut out = Vec::new();
+    for (grip, key) in GRIP_KEYS {
+        if let Some(Binding::Bound(target)) = layout.get(*grip) {
+            if HOTKEYS.iter().any(|(t, _)| t == target) {
+                continue;
+            }
+            if let Some(slot) = (!free.is_empty()).then(|| free.remove(0)) {
+                out.push((slot, *key, target.clone()));
+            }
+        }
+    }
+    out
+}
+
+/// The controls config: each Deck button on its own slot, grips as keys, every hotkey.
+pub fn config(_system: System, layout: &Layout) -> String {
     let mut binds: BTreeMap<String, &'static str> = BTreeMap::new();
-    let mut set = |key: String, value: &'static str| {
-        binds.entry(key).or_insert(value);
-    };
+    let grips = grip_slots(layout);
+    for input in [
+        "a", "b", "x", "y", "view", "menu", "l3", "r3", "l1", "r1", "l2", "r2",
+    ] {
+        let (slot, src) = physical(input).expect("a Deck button");
+        if grips.iter().any(|(s, _, _)| *s == slot) {
+            continue;
+        }
+        match src {
+            Source::Button(n) => binds.insert(format!("input_player1_{slot}_btn"), n),
+            Source::Axis(n) => binds.insert(format!("input_player1_{slot}_axis"), n),
+        };
+    }
+    for (dir, btn) in [
+        ("up", "11"),
+        ("down", "12"),
+        ("left", "13"),
+        ("right", "14"),
+    ] {
+        binds.insert(format!("input_player1_{dir}_btn"), btn);
+    }
+    for (stick, axis) in [
+        ("l_x_plus", "+0"),
+        ("l_x_minus", "-0"),
+        ("l_y_plus", "+1"),
+        ("l_y_minus", "-1"),
+        ("r_x_plus", "+2"),
+        ("r_x_minus", "-2"),
+        ("r_y_plus", "+3"),
+        ("r_y_minus", "-3"),
+    ] {
+        binds.insert(format!("input_player1_{stick}_axis"), axis);
+    }
+    for (slot, key, _) in &grips {
+        binds.insert(format!("input_player1_{slot}"), key);
+    }
     for (input, binding) in layout {
         let Binding::Bound(target) = binding else {
             continue;
         };
         if let Some((_, hotkey)) = HOTKEYS.iter().find(|(t, _)| t == target) {
-            if let Some(src) = button_source(input) {
-                set(format!("{hotkey}{}", src.suffix()), src.value());
-            }
-            continue;
-        }
-        let Some(pad) = retropad(system, target) else {
-            continue;
-        };
-        if let Some(src) = button_source(input) {
-            set(format!("input_player1_{pad}{}", src.suffix()), src.value());
-        } else if let Some([up, down, left, right]) = directions(input) {
-            let names: [String; 4] = if pad == "dirs" {
-                ["up", "down", "left", "right"].map(String::from)
-            } else {
-                [
-                    format!("{pad}_y_minus"),
-                    format!("{pad}_y_plus"),
-                    format!("{pad}_x_minus"),
-                    format!("{pad}_x_plus"),
-                ]
-            };
-            for (name, src) in names.iter().zip([up, down, left, right]) {
-                set(format!("input_player1_{name}{}", src.suffix()), src.value());
+            if let Some((suffix, value)) = hotkey_source(input) {
+                binds.entry(format!("{hotkey}{suffix}")).or_insert(value);
             }
         }
     }
-
     let mut out = String::from(
         "# Written by Romshelf: this game's controls. Appended after romshelf.cfg.\n\
          input_autodetect_enable = \"false\"\n\
@@ -243,7 +279,17 @@ pub fn config(system: System, layout: &Layout) -> String {
         let value = binds.get(&key).copied().unwrap_or("nul");
         let _ = writeln!(out, "{key} = \"{value}\"");
     };
-    for pad in RETROPAD.iter().chain(ANALOG) {
+    let analog = [
+        "l_x_plus",
+        "l_x_minus",
+        "l_y_plus",
+        "l_y_minus",
+        "r_x_plus",
+        "r_x_minus",
+        "r_y_plus",
+        "r_y_minus",
+    ];
+    for pad in SLOTS.iter().chain(analog.iter()) {
         for suffix in ["", "_btn", "_axis"] {
             line(format!("input_player1_{pad}{suffix}"));
         }
@@ -252,6 +298,60 @@ pub fn config(system: System, layout: &Layout) -> String {
         for suffix in ["", "_btn", "_axis"] {
             line(format!("{hotkey}{suffix}"));
         }
+    }
+    out
+}
+
+/// The remap file: each slot to the game button the layout gives its Deck button, `-1` for
+/// none. Several slots may send the same button.
+pub fn remap(system: System, layout: &Layout) -> String {
+    let mut ids: BTreeMap<String, i32> = BTreeMap::new();
+    for slot in SLOTS {
+        ids.insert(format!("btn_{slot}"), -1);
+    }
+    for stick in STICKS {
+        ids.insert(format!("stk_{stick}"), -1);
+    }
+    for (input, binding) in layout {
+        let Binding::Bound(target) = binding else {
+            continue;
+        };
+        let Some(pad) = retropad(system, target) else {
+            continue;
+        };
+        if let Some((slot, _)) = physical(input) {
+            if let Some(id) = slot_id(pad) {
+                ids.insert(format!("btn_{slot}"), id as i32);
+            }
+        } else if let Some(keys) = direction_keys(input) {
+            for (key, id) in keys.iter().zip(direction_ids(pad)) {
+                ids.insert((*key).to_string(), id as i32);
+            }
+        }
+    }
+    for (slot, _, target) in grip_slots(layout) {
+        if let Some(id) = retropad(system, &target).and_then(slot_id) {
+            ids.insert(format!("btn_{slot}"), id as i32);
+        }
+    }
+    let mut out = String::from(
+        "# Written by Romshelf: this game's buttons.\n\
+         input_libretro_device_p1 = \"1\"\n\
+         input_remap_port_p1 = \"0\"\n",
+    );
+    for slot in SLOTS {
+        let _ = writeln!(
+            out,
+            "input_player1_btn_{slot} = \"{}\"",
+            ids[&format!("btn_{slot}")]
+        );
+    }
+    for stick in STICKS {
+        let _ = writeln!(
+            out,
+            "input_player1_stk_{stick} = \"{}\"",
+            ids[&format!("stk_{stick}")]
+        );
     }
     out
 }

@@ -21,6 +21,14 @@ impl RetroArch {
             .join(format!("{}.cfg", rom.id))
     }
 
+    /// This game's own remap folder (`input_remapping_directory` for its launches).
+    pub fn remap_dir(paths: &Paths, rom: &Rom) -> PathBuf {
+        RetroArch
+            .session_dir(paths)
+            .join("remaps")
+            .join(rom.id.as_str())
+    }
+
     /// This game's controls, appended last.
     pub fn controls_config(paths: &Paths, rom: &Rom) -> PathBuf {
         RetroArch
@@ -176,7 +184,9 @@ impl EmulatorAdapter for RetroArch {
              sort_savefiles_enable = \"false\"\n\
              sort_savestates_enable = \"false\"\n\
              sort_savefiles_by_content_enable = \"false\"\n\
-             sort_savestates_by_content_enable = \"false\"\n",
+             sort_savestates_by_content_enable = \"false\"\n\
+             input_remap_binds_enable = \"true\"\n\
+             remap_save_on_exit = \"false\"\n",
             session.join("saves").display(),
             session.join("states").display(),
             session.join("system").display(),
@@ -198,10 +208,12 @@ impl EmulatorAdapter for RetroArch {
         let cfg = format!(
             "# Written by Romshelf for {}.\n\
              savefile_directory = \"{}\"\n\
-             savestate_directory = \"{}\"\n",
+             savestate_directory = \"{}\"\n\
+             input_remapping_directory = \"{}\"\n",
             rom.display_name,
             saves.display(),
             states.display(),
+            RetroArch::remap_dir(paths, rom).display(),
         );
         write_if_changed(&RetroArch::game_config(paths, rom), &cfg)
     }
@@ -258,6 +270,16 @@ impl EmulatorAdapter for RetroArch {
 
     /// The game's controls in their own appended config, `games/<rom-id>.controls.cfg`.
     fn write_controls(&self, layout: &ControlLayout, rom: &Rom, paths: &Paths) -> Result<()> {
+        if let Some(core) =
+            RetroArch::core_for(rom.system).and_then(crate::controls::retroarch::core_name)
+        {
+            write_if_changed(
+                &RetroArch::remap_dir(paths, rom)
+                    .join(core)
+                    .join(format!("{core}.rmp")),
+                &crate::controls::retroarch::remap(rom.system, layout),
+            )?;
+        }
         write_if_changed(
             &RetroArch::controls_config(paths, rom),
             &crate::controls::retroarch::config(rom.system, layout),

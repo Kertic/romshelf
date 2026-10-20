@@ -85,6 +85,17 @@ Status: **built; waiting for the on-Deck checks.**
 - **Recovery:** Romshelf's pre-write backups held your shortcuts. At your choice, the 65 from 02:49 were restored (you had deleted "test" and "kirb" yourself), with Steam closed and the 4-shortcut file kept as `shortcuts.vdf.before-restore-1792482942.bak`. The scanner then rewrote the file 11 times in two minutes and kept all 65.
 - **Still a risk:** the scanner rewrites the file about every ten seconds, from the copy it read at the start of its pass, so a pass running across a Romshelf write could undo it. Romshelf re-applies after every sync, which repairs that; the "change while Steam runs" check will show whether it matters.
 
+### Found on the Deck: two buttons on one game button (2026-10-20)
+
+- Your RetroArch GBA default gave two buttons each to A and B (X also B, Y also A). RetroArch's own settings allow only one controller button per game button, so Romshelf wrote the first and silently dropped the second.
+- **Fix** (you chose making it work, in the emulator rather than in Steam's layout):
+  - Each Deck button is now bound to its own RetroPad slot by position, which also keeps RetroArch's menu working normally.
+  - A **remap file** sends each slot to the game button the layout chooses, so several buttons can drive one.
+  - RetroArch 1.19.1's source (`configuration.c`) sets the format and where it's read from (`<remap folder>/<core name>/<core name>.rmp`). The core names come from the Deck's info files (mGBA, Snes9x, Mupen64Plus-Next).
+  - Each game has its own remap folder (`config/romshelf/remaps/<rom-id>`), so the file never depends on the ROM's name, and `remap_save_on_exit` is off for Romshelf's launches.
+  - A back grip on a game button takes the slot of a Deck button the layout leaves unbound.
+- **Confirm on the Deck:** RetroArch loads the per-game remap (your X-also-B, Y-also-A layout works in Kirby).
+
 ### Choices made
 
 - **Romshelf's own `shortcuts.vdf` code** instead of the crate (above).
