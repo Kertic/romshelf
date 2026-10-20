@@ -2,7 +2,7 @@
 
 ## Stage 7: controls (branch `stage-07-controls`, on top of stage 6)
 
-Status: **in progress.** Steps 1 and 2 (the control model and merging) are built and tested. Waiting on the back-grip decision before step 3.
+Status: **in progress.** You chose the back-grip approach, and it works on the Deck. Built so far: the model, merging, defaults, storage and the RetroArch writer. Still to build: Dolphin, the editor, the ROM page card, and setup applying the defaults.
 
 ### Back-grip spike (2026-10-19, on the Deck over SSH)
 
@@ -10,7 +10,13 @@ Status: **in progress.** Steps 1 and 2 (the control model and merging) are built
 - EmuDeck (through Steam ROM Manager) used exactly this to give 21 shortcuts its layout (`"template" "emudeck_frontend_controller_steamdeck.vdf"`). That template file is no longer anywhere on the Deck, so Steam is presumably falling back to its own default for them.
 - Romshelf's two test shortcuts ("test", "kirb") have no entry, so they use Steam's default gamepad layout.
 - So a layout **can** be supplied as a file and applied to shortcuts without the user setting each one up by hand. Writing the entries would happen alongside the `shortcuts.vdf` write in stage 8, with Steam closed, plus a template file of Romshelf's own.
-- **Not yet confirmed end to end:** a Romshelf template actually loading in Game Mode, and the back grips sending keys the emulators see.
+- **Confirmed end to end (2026-10-19):**
+  - Steam keys a shortcut's entry by its real name in lower case with the dot dropped: "romshelf.AppImage kirb" became `"romshelfappimage kirb"`. An entry under "kirb" was ignored.
+  - With `"autosave" "1"` and Romshelf's layout file at `<that name>/controller_neptune.vdf` (written with Steam shut down), Steam showed the layout "Romshelf" with L4 F9, R4 F10, L5 F11, R5 F12.
+  - In Kirby, L4 toggled fast forward and L5/R5 saved and loaded a state, through the RetroArch controls Romshelf wrote.
+- The layout came from Steam's own gamepad template with the four grips bound to keys. In Steam's files, `button_back_left_upper` is L4 and `button_back_left` is L5.
+- **For stage 8:** write the layout and the `configset_controller_neptune.vdf` entry for each shortcut along with `shortcuts.vdf`, while Steam is closed. Work out Steam's exact rule for turning a name into the entry key. Seen so far: the dot is dropped; spaces, parentheses, `!` and apostrophes are kept.
+- The spike's backup of Steam's files is in `~/romshelf-spike-backup/` on the Deck.
 
 ### Built so far
 
