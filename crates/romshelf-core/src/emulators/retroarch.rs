@@ -82,6 +82,57 @@ fn move_named_files(shared: &Path, own: &Path, rom: &Rom) -> Result<()> {
     Ok(())
 }
 
+/// What follows the ROM's name in a save or state file: `.srm`, `.rtc`, `.state1`,
+/// `.state.auto`, `.state1.png`. `None` for anything else.
+fn save_suffix(name: &str) -> Option<&str> {
+    if let Some(at) = name.rfind(".state") {
+        return Some(&name[at..]);
+    }
+    [".srm", ".rtc", ".sav", ".ldci"]
+        .iter()
+        .find(|ext| name.ends_with(*ext))
+        .map(|ext| &name[name.len() - ext.len()..])
+}
+
+/// RetroArch names saves after the ROM file, so a ROM renamed in Drive would start with no
+/// save. The game's own folder holds only its files: any under an old name move to the
+/// current one, unless a file of that kind already has the current name (then nothing is
+/// guessed and both stay).
+fn follow_rom_name(own: &Path, rom: &Rom) -> Result<()> {
+    let Some(stem) = Path::new(&rom.file_name)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+    else {
+        return Ok(());
+    };
+    let Ok(entries) = std::fs::read_dir(own) else {
+        return Ok(());
+    };
+    let names: Vec<String> = entries
+        .flatten()
+        .filter(|e| e.path().is_file())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    for name in &names {
+        let Some(suffix) = save_suffix(name) else {
+            continue;
+        };
+        let current = format!("{stem}{suffix}");
+        if *name == current || names.contains(&current) {
+            continue;
+        }
+        // Another old name with the same kind of file: unclear which is right, so none moves.
+        let rivals = names
+            .iter()
+            .filter(|n| save_suffix(n) == Some(suffix))
+            .count();
+        if rivals == 1 {
+            std::fs::rename(own.join(name), own.join(&current))?;
+        }
+    }
+    Ok(())
+}
+
 impl EmulatorAdapter for RetroArch {
     fn id(&self) -> &'static str {
         "retroarch"
@@ -142,6 +193,8 @@ impl EmulatorAdapter for RetroArch {
         let session = self.session_dir(paths);
         move_named_files(&session.join("saves"), &saves, rom)?;
         move_named_files(&session.join("states"), &states, rom)?;
+        follow_rom_name(&saves, rom)?;
+        follow_rom_name(&states, rom)?;
         let cfg = format!(
             "# Written by Romshelf for {}.\n\
              savefile_directory = \"{}\"\n\

@@ -1007,3 +1007,41 @@ fn states_are_mirrored_when_the_game_ends() {
         .iter()
         .any(|f| f.name == "Kirby.state" && !f.trashed));
 }
+
+#[test]
+fn retroarch_saves_follow_a_rename_in_drive() {
+    let d = Device::alone();
+    let rom = d.ready(System::Gba, "Kirby.gba");
+    RetroArch.prepare_game(&rom, &d.paths).unwrap();
+    d.write_save(&rom, "Kirby.srm", b"progress");
+    d.write_save(&rom, "Kirby.rtc", b"clock");
+    let states = RetroArch.state_dir(&rom, &d.paths).unwrap();
+    std::fs::write(states.join("Kirby.state1"), b"slot").unwrap();
+    std::fs::write(states.join("Kirby.state1.png"), b"thumb").unwrap();
+    let mut renamed = rom.clone();
+    renamed.file_name = "Kirby (USA).gba".into();
+    RetroArch.prepare_game(&renamed, &d.paths).unwrap();
+    assert_eq!(
+        file_names(&d.save_dir(&rom)),
+        ["Kirby (USA).rtc", "Kirby (USA).srm"]
+    );
+    assert_eq!(d.read_save(&rom, "Kirby (USA).srm"), b"progress");
+    assert_eq!(
+        file_names(&states),
+        ["Kirby (USA).state1", "Kirby (USA).state1.png"]
+    );
+}
+
+#[test]
+fn a_save_under_both_names_is_left_alone() {
+    let d = Device::alone();
+    let rom = d.ready(System::Gba, "Kirby (USA).gba");
+    d.write_save(&rom, "Kirby.srm", b"old progress");
+    d.write_save(&rom, "Kirby (USA).srm", b"started again");
+    RetroArch.prepare_game(&rom, &d.paths).unwrap();
+    assert_eq!(
+        file_names(&d.save_dir(&rom)),
+        ["Kirby (USA).srm", "Kirby.srm"]
+    );
+    assert_eq!(d.read_save(&rom, "Kirby.srm"), b"old progress");
+}

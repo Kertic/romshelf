@@ -105,9 +105,11 @@ Status: **built; waiting for the on-Deck checks.**
 - [x] Add a game with "Show in Steam library", restart Steam: it appears under Non-Steam with the right name. 2026-10-20, after the permissions fix: Kirby and Twilight Princess added; checked over SSH (67 shortcuts, both entries correct, four generated images each, both in Steam's layout list).
 - [x] All artwork slots show correctly: library grid, the game's page (hero and logo), recent games, and the icon.
 - [x] Launch it from Steam: the full pipeline runs, including save backup on quit.
-- [ ] Rename the ROM file in Drive, sync, launch the shortcut again: it still works. Not tested yet.
+- [x] Rename the ROM file in Drive, sync, launch the shortcut again: it still works. 2026-10-20: it worked, but two problems showed up:
+  - Romshelf downloaded the game again under the new name and left the old copy (8 MB) beside it. Fixed: a rename or move in Drive now renames the copy on the Deck, never over a file already there.
+  - RetroArch names saves after the ROM file, so Kirby started a fresh save (`…renamed.srm`) and the old one (`…(USA).srm`, 03:11) was no longer read. Fixed: before each launch, saves and states under an old name move to the current one. Each game has its own folder, so nothing else is in there. When files exist under both names, nothing moves, rather than guess. Your Deck has both now; the old one is your real progress, and both are in Drive.
 - [x] Existing non-Steam shortcuts that Romshelf did not create are still present and unchanged. (After the restore; see "Found on the Deck" above.)
-- [ ] Make a change while Steam is running, then exit Steam normally and start it again: the change is still there. If Steam overwrote it, report this. Not yet possible: Backspace didn't edit the shortcut name, because Romshelf took Backspace as "back" (and Space as "A") even while typing. Fixed: in a text field, only Escape and up/down navigate; every other key types. To retest.
+- [x] Make a change while Steam is running, then exit Steam normally and start it again: the change is still there. If Steam overwrote it, report this. 2026-10-20: the new name stayed. First it couldn't be tried: Backspace didn't edit the shortcut name, because Romshelf took Backspace as "back" (and Space as "A") even while typing. Fixed: in a text field, only Escape and up/down navigate; every other key types. To retest.
 - [x] (From stage 7.) L4 fast forward works in Twilight Princess, from its new Romshelf shortcut.
 
 ## Stage 7: controls (branch `stage-07-controls`, on top of stage 6)
