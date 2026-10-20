@@ -38,6 +38,8 @@ export interface LibraryEntry {
   save: SaveSync;
   /** Romshelf keeps this game's save states (RetroArch). */
   keeps_states: boolean;
+  /** How many inputs this game maps differently from its emulator's default. */
+  control_differences: number;
 }
 
 /** Where a game's save stands against Drive. */
@@ -468,5 +470,102 @@ function browserPreviewLibrary(): LibraryEntry[] {
       last_error: null,
     },
     keeps_states: system !== "gamecube" && system !== "ps2",
+    control_differences: system === "gba" ? 1 : 0,
   }));
+}
+
+/** A binding: a target, or explicitly nothing. */
+export type Binding = { kind: "bound"; action: string } | { kind: "cleared" };
+/** Deck input id → binding. */
+export type Layout = Record<string, Binding>;
+
+export interface InputView {
+  id: string;
+  label: string;
+  directional: boolean;
+  back_grip: boolean;
+}
+
+export interface TargetView {
+  id: string;
+  label: string;
+  kind: "game" | "hotkey";
+  directional: boolean;
+}
+
+/** One emulator's layout for one system, and one game's differences when a game is given. */
+export interface ControlsView {
+  emulator_id: string;
+  emulator: string;
+  system: string;
+  system_label: string;
+  game: { id: string; name: string } | null;
+  inputs: InputView[];
+  targets: TargetView[];
+  default: Layout;
+  game_diff: Layout;
+}
+
+export async function controlsView(emulatorId: string, system: string, romId: string | null): Promise<ControlsView> {
+  if (!inTauri()) return previewControls(emulatorId, system, romId);
+  return invoke<ControlsView>("controls_view", { emulatorId, system, romId });
+}
+
+/** Saves the default (no game: the full layout) or the game's differences. */
+export async function saveControls(emulatorId: string, system: string, romId: string | null, layout: Layout): Promise<void> {
+  if (inTauri()) await invoke("save_controls", { emulatorId, system, romId, layout });
+}
+
+export async function resetControls(emulatorId: string, system: string, romId: string): Promise<void> {
+  if (inTauri()) await invoke("reset_controls", { emulatorId, system, romId });
+}
+
+export async function promoteCount(emulatorId: string, system: string, romId: string, layout: Layout): Promise<number> {
+  if (!inTauri()) return 2;
+  return invoke<number>("promote_count", { emulatorId, system, romId, layout });
+}
+
+export async function promoteControls(emulatorId: string, system: string, romId: string, layout: Layout): Promise<void> {
+  if (inTauri()) await invoke("promote_controls", { emulatorId, system, romId, layout });
+}
+
+function previewControls(emulatorId: string, system: string, romId: string | null): ControlsView {
+  const b = (action: string): Binding => ({ kind: "bound", action });
+  const c: Binding = { kind: "cleared" };
+  const inputs: [string, string, boolean, boolean][] = [
+    ["dpad", "D-pad", true, false], ["left_stick", "Left stick", true, false], ["right_stick", "Right stick", true, false],
+    ["a", "A", false, false], ["b", "B", false, false], ["x", "X", false, false], ["y", "Y", false, false],
+    ["l1", "L1", false, false], ["r1", "R1", false, false], ["l2", "L2", false, false], ["r2", "R2", false, false],
+    ["l3", "L3", false, false], ["r3", "R3", false, false], ["menu", "Menu", false, false], ["view", "View", false, false],
+    ["l4", "L4", false, true], ["r4", "R4", false, true], ["l5", "L5", false, true], ["r5", "R5", false, true],
+  ];
+  return {
+    emulator_id: emulatorId,
+    emulator: "RetroArch",
+    system,
+    system_label: "GBA",
+    game: romId ? { id: romId, name: "Tidewalker" } : null,
+    inputs: inputs.map(([id, label, directional, back_grip]) => ({ id, label, directional, back_grip })),
+    targets: [
+      { id: "dpad", label: "D-pad", kind: "game", directional: true },
+      { id: "a", label: "A", kind: "game", directional: false },
+      { id: "b", label: "B", kind: "game", directional: false },
+      { id: "l", label: "L shoulder", kind: "game", directional: false },
+      { id: "r", label: "R shoulder", kind: "game", directional: false },
+      { id: "start", label: "Start", kind: "game", directional: false },
+      { id: "select", label: "Select", kind: "game", directional: false },
+      { id: "fast_forward", label: "Fast forward", kind: "hotkey", directional: false },
+      { id: "rewind", label: "Rewind", kind: "hotkey", directional: false },
+      { id: "save_state", label: "Save state", kind: "hotkey", directional: false },
+      { id: "load_state", label: "Load state", kind: "hotkey", directional: false },
+      { id: "menu", label: "Open menu", kind: "hotkey", directional: false },
+      { id: "quit", label: "Quit game", kind: "hotkey", directional: false },
+    ],
+    default: {
+      dpad: b("dpad"), left_stick: b("dpad"), right_stick: c, a: b("a"), b: b("b"), x: c, y: c,
+      l1: b("l"), r1: b("r"), l2: c, r2: c, l3: c, r3: c, menu: b("start"), view: b("select"),
+      l4: b("fast_forward"), r4: b("rewind"), l5: b("save_state"), r5: b("load_state"),
+    },
+    game_diff: romId ? { r4: c } : {},
+  };
 }

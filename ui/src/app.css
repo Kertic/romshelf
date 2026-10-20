@@ -705,3 +705,57 @@ button:focus {
   font-weight: 600;
   z-index: 20;
 }
+
+/* Controls editor (UI guide section 5.4). */
+.controls-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.scope-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.controls-body {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 24px;
+  align-items: start;
+}
+.controls-lists {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.control-row {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  width: 100%;
+}
+.control-row.listening {
+  border-color: var(--accent);
+}
+.control-target {
+  font-weight: 500;
+}
+.tag {
+  font-size: 12px;
+  font-weight: 600;
+}
+.controls-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.controls-side .button {
+  white-space: normal;
+  height: auto;
+  min-height: var(--target-min);
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.controls-lists .folder-list {
+  max-height: none;
+}

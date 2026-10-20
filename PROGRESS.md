@@ -2,7 +2,7 @@
 
 ## Stage 7: controls (branch `stage-07-controls`, on top of stage 6)
 
-Status: **in progress.** You chose the back-grip approach, and it works on the Deck. Built so far: the model, merging, defaults, storage and the RetroArch writer. Still to build: Dolphin, the editor, the ROM page card, and setup applying the defaults.
+Status: **built; waiting for the on-Deck checks.** You chose the back-grip approach, and it works on the Deck.
 
 ### Back-grip spike (2026-10-19, on the Deck over SSH)
 
@@ -18,15 +18,86 @@ Status: **in progress.** You chose the back-grip approach, and it works on the D
 - **For stage 8:** write the layout and the `configset_controller_neptune.vdf` entry for each shortcut along with `shortcuts.vdf`, while Steam is closed. Work out Steam's exact rule for turning a name into the entry key. Seen so far: the dot is dropped; spaces, parentheses, `!` and apostrophes are kept.
 - The spike's backup of Steam's files is in `~/romshelf-spike-backup/` on the Deck.
 
-### Built so far
+### Built
 
-- `controls/model.rs`:
-  - Inputs: D-pad, both sticks, A, B, X, Y, L1–R3, Menu, View, and the four back grips.
-  - Targets per system (GBA, SNES, N64, GameCube buttons and sticks) and per emulator (hotkeys, including a "Quit game" of Romshelf's own, as stage 5 asked).
-  - Scopes such as `retroarch/gba`.
-  - Layouts, built from pairs (an input bound twice is rejected) and validated (directions only from the D-pad or a stick).
-- `controls/merge.rs`: merge, difference and promote.
-- 9 tests: merge rules, a default change after overrides, difference-then-merge over 500 generated layouts, promote, reset, shared targets, validation messages, scope keys.
+- **The model** (`controls/model.rs`):
+  - Inputs: the D-pad, both sticks, A/B/X/Y, L1–R3, Menu, View and the four back grips.
+  - Targets: each system's buttons and sticks, plus each emulator's hotkeys (fast forward, rewind (RetroArch only), save state, load state, open menu (RetroArch only), and quit game).
+  - Each layout belongs to a scope: an emulator for one system (`retroarch/gba`), since RetroArch's systems have different buttons.
+  - Validation:
+    - Directions only from the D-pad or a stick.
+    - Binding one input twice is rejected.
+    - Two inputs may share a target.
+- **Merge** (`controls/merge.rs`): merge, difference and promote.
+- **Built-in defaults** (`controls/defaults.rs`):
+  - Buttons:
+    - GBA follows the reference screen (A → A, B → B).
+    - SNES and GameCube go by position. GameCube matches EmuDeck's layout: Deck X → B, Deck B → X, R1 → Z, L2/R2 → L/R.
+    - N64: right stick → C buttons, L2 → Z.
+  - Hotkeys on the grips: L4 fast forward, R4 rewind (RetroArch), L5 save state, R5 load state.
+  - Quit has no default button. Steam button → Exit game ends any game, and stage 6 backs its save up on the next run.
+- **Storage** (`controls/store.rs`):
+  - Defaults and game differences are in `control_profiles`. A game is stored only while it has differences.
+  - Each change is copied to Drive's `.romshelf/controls/<emulator>-<system>.json`, and a sync takes newer copies from there. A newer change on this Deck wins over an older Drive copy.
+- **Writers:**
+  - **RetroArch** (`controls/retroarch.rs`): `games/<rom-id>.controls.cfg`, appended last (`--appendconfig "romshelf.cfg|game.cfg|controls.cfg"`). It contains:
+    - Every RetroPad bind for player 1. Button numbers are Steam's virtual gamepad under SDL2, from RetroArch's own autoconfig.
+    - Grips as F9–F12.
+    - Every hotkey: unbound unless the layout binds it. There's no hotkey-enable button, and autodetect is off, so nothing falls back to EmuDeck's hotkeys (which need View held, and would fire alone otherwise).
+  - **Dolphin** (`controls/dolphin.rs`):
+    - `[GCPad1]` in Romshelf's copy of `GCPadNew.ini`, with the other pads kept.
+    - A fresh `Hotkeys.ini`. Grips are named on the keyboard device (`XInput2/0/Virtual core pointer:F9`).
+    - Both are rewritten before each launch.
+- **Pipeline:** the Controls step writes the game's merged layout before every launch.
+- **Setup's step two** stores the built-in layout as the default for each of the emulator's systems, unless one is already there.
+- **Interface:**
+  - **The Controls editor** (guide 5.4):
+    - The scope switch: "{emulator} default" or "{game} only", switched with L1/R1.
+    - Game buttons and Emulator hotkeys lists, tagged "Default" or "This game".
+    - Rebind: A, then press the new input. A stick press binds the stick; a grip arrives as its key. A tap of B binds B; holding B for a second cancels.
+    - Binding onto a used input asks to swap.
+    - An unbound row offers the targets it could do.
+    - X clears a row, and Y returns it to the default.
+    - Side panel: an explanation (including that Steam's own layout sits above), the custom count, Reset, "Make this the {emulator} default" (confirms with how many games change), and Save.
+    - Leaving unsaved asks: Save, Discard or Keep editing.
+  - **The game's dialog:** a Controls group ("RetroArch default" or "Custom for this game · 2 buttons differ from default"), with **Edit controls** and **Reset**.
+  - **The Emulators screen:** a "{system} controls" button per system once the emulator is installed.
+
+### Tests
+
+- 23 Rust tests:
+  - The merge rules.
+  - Difference-then-merge over 500 generated layouts.
+  - Promote and reset.
+  - Validation.
+  - Every built-in default complete and valid.
+  - Storage, and promote naming the games it will change.
+  - The Drive mirror on a second device.
+  - Setup storing defaults and keeping an existing one.
+  - Golden files:
+    - RetroArch: GBA default, GBA with differences, N64.
+    - Dolphin: pad and hotkeys.
+  - Every RetroArch setting is one RetroArch 1.19.1 itself writes (fixture from the Deck), and the button numbers match its Steam Virtual Gamepad autoconfig.
+  - The Dolphin default matches the `GCPadNew.ini` Dolphin wrote on the Deck.
+- 13 UI tests: the rules, tags, the rebind flow by simulated presses (swap, B tap and hold, sticks, grips), X/Y/L1/R1, the target picker, promote, and leaving unsaved.
+
+### Confirm (on the Deck)
+
+- Dolphin sees the grip keys on `XInput2/0/Virtual core pointer` under Game Mode.
+- Mupen64Plus-Next reads the RetroPad as assumed (B = N64 A, Y = N64 B, L2 = Z, right stick = C buttons). There's no N64 game on the Deck yet.
+
+### Deferred
+
+- **Writing Romshelf's Steam Input layout to each shortcut** is stage 8's: that's where shortcuts are written, with Steam closed. The spike shows how.
+- **Quit on a button:** the model maps one input to one target, with no combinations, so quit has no default button. Steam's Exit game covers it. It can still be bound to a free input in the editor.
+
+### On-Deck checklist
+
+- [ ] The default layout works in Kirby (GBA) and Twilight Princess (GameCube) with no editing. Twilight Princess's buttons are as before (EmuDeck's positions).
+- [ ] Swap A and B for Kirby only: swapped there, normal in another GBA game. (Only one GBA game so far: check Kirby swaps, then reset.)
+- [ ] Bind fast forward for one game: it works in that game.
+- [ ] Change the RetroArch GBA default: Kirby follows, except its overridden buttons.
+- [ ] L4 fast forward works in Kirby (done in the spike) and in Twilight Princess.
 
 ## Stage 6: saves and save states (branch `stage-06-saves`, on top of stage 5)
 

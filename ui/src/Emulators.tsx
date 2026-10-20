@@ -32,11 +32,13 @@ interface Props {
   error: string | null;
   setups: Record<string, SetupState>;
   onSetup: (id: string, repair: boolean) => void;
+  /** Opens the Controls editor on an emulator's default for one system. */
+  onEditControls?: (emulatorId: string, system: string) => void;
   onBack: () => void;
 }
 
 /** The Emulators screen (UI guide section 6). Setup keeps running if you leave the screen. */
-export function Emulators({ list, error, setups, onSetup, onBack }: Props) {
+export function Emulators({ list, error, setups, onSetup, onEditControls, onBack }: Props) {
   return (
     <main className="content emulators">
       <button className="back-link" data-focusable data-hint="Back" type="button" onClick={onBack}>
@@ -63,6 +65,22 @@ export function Emulators({ list, error, setups, onSetup, onBack }: Props) {
                     </div>
                   )}
                   {!busy && !s?.failed && s?.message && <span className="tile-status warn">{s.message}</span>}
+                  {e.status === "installed" && onEditControls && (
+                    <div className="dialog-actions start">
+                      {e.systems.map((label) => (
+                        <button
+                          key={label}
+                          className="button outline"
+                          data-focusable
+                          data-hint="Edit"
+                          type="button"
+                          onClick={() => onEditControls(e.id, label.toLowerCase())}
+                        >
+                          {label} controls
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <button
                   className={e.status === "installed" && !s?.failed ? "button outline" : "button primary"}

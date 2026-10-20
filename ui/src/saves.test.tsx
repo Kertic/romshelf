@@ -43,6 +43,7 @@ function entry(save: Partial<SaveSync> = {}, keepsStates = true): LibraryEntry {
     in_steam: false,
     save: { ...NO_SAVE, ...save },
     keeps_states: keepsStates,
+    control_differences: 0,
   };
 }
 

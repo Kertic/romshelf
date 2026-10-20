@@ -17,8 +17,10 @@ describe("input", () => {
   });
 
   it("treats the left stick as the D-pad", () => {
-    expect([...browserPressed(pad([], [-0.9, 0.8, 0, 0]))].sort()).toEqual(["down", "left"]);
-    expect([...gilrsPressed([], { left_x: 0, left_y: 0.9 })]).toEqual(["up"]);
+    expect([...browserPressed(pad([], [-0.9, 0.8, 0, 0]))].sort()).toEqual(["down", "left", "lstick"]);
+    // The stick is reported first, then its direction.
+    expect([...gilrsPressed([], { left_x: 0, left_y: 0.9 })]).toEqual(["lstick", "up"]);
+    expect([...gilrsPressed([], { right_x: -0.8 })]).toEqual(["rstick"]);
   });
 
   it("ignores unknown gilrs names", () => {

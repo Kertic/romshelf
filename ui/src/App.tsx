@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   answerSaveQuestion,
+  controlsView,
+  promoteControls,
+  promoteCount,
+  resetControls,
+  saveControls,
   appInfo,
   backupSave,
   cancelDownload,
@@ -33,6 +38,7 @@ import {
   type ConnectionStatus,
   type LibraryEntry,
   type SaveChoice,
+  type ControlsView,
   type Progress,
   type StorageStatus,
   type SyncStatus,
@@ -43,13 +49,14 @@ import { Footer, type Hint } from "./Footer";
 import { GamepadSpike } from "./GamepadSpike";
 import { Emulators, type SetupState } from "./Emulators";
 import { LaunchWindow, type LaunchState } from "./LaunchWindow";
+import { Controls, type KeyHandler } from "./Controls";
 import { Home } from "./Home";
 import type { Button } from "./input";
 import { nextTab } from "./library";
 import { RomDialog, type SaveActions } from "./RomActions";
 import { useInput } from "./useInput";
 
-type Screen = "loading" | "first-run" | "home" | "emulators" | "launch" | "spike";
+type Screen = "loading" | "first-run" | "home" | "emulators" | "launch" | "controls" | "spike";
 
 const HOLD_TO_LEAVE_MS = 1000;
 
@@ -80,6 +87,15 @@ export function App() {
   const [launch, setLaunch] = useState<LaunchState | null>(null);
   /** A one-line toast ("Backed up Tidewalker"), shown for four seconds. */
   const [toast, setToast] = useState<string | null>(null);
+  /** The Controls editor: which layout, and where B goes back to. */
+  const [controlsFor, setControlsFor] = useState<{ emulatorId: string; system: string; romId: string | null; from: Screen } | null>(null);
+  const [controls, setControls] = useState<ControlsView | null>(null);
+  const [controlsError, setControlsError] = useState<string | null>(null);
+  /** The editor sees presses first (rebinding, X, Y, L1, R1). */
+  const keyHandler = useRef<KeyHandler | null>(null);
+  const registerKeys = useCallback((h: KeyHandler | null) => {
+    keyHandler.current = h;
+  }, []);
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 4000);
@@ -248,6 +264,24 @@ export function App() {
     loadEmulators();
   }, [loadEmulators, setBack]);
 
+  const loadControls = useCallback((t: { emulatorId: string; system: string; romId: string | null }) => {
+    setControlsError(null);
+    controlsView(t.emulatorId, t.system, t.romId)
+      .then(setControls)
+      .catch((e) => setControlsError(e?.message ?? `Couldn't read the controls: ${String(e)}. Try again.`));
+  }, []);
+  const openControls = useCallback(
+    (emulatorId: string, system: string, romId: string | null, from: Screen) => {
+      const t = { emulatorId, system, romId, from };
+      setControlsFor(t);
+      setControls(null);
+      setDialogRom(null);
+      setScreen("controls");
+      loadControls(t);
+    },
+    [loadControls],
+  );
+
   // A newer build may finish downloading at any time while Romshelf is open.
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -333,6 +367,7 @@ export function App() {
   }, [syncHint]);
   const onPress = useCallback(
     (b: Button, from: "pad" | "keyboard") => {
+      if (screen === "controls" && keyHandler.current?.(b, from)) return;
       if (b === "up" || b === "down" || b === "left" || b === "right") {
         // An open dialog keeps focus inside it.
         moveFocus(b as Direction, document.querySelector("[data-dialog]") ?? document);
@@ -392,6 +427,19 @@ export function App() {
     });
     return () => clearTimeout(timer);
   }, [screen, entries, tab, syncHint]);
+  const closeControls = useCallback(() => {
+    const f = controlsFor;
+    setControlsFor(null);
+    setControls(null);
+    setBack(null);
+    reloadLibrary();
+    if (f?.from === "emulators") openEmulators();
+    else {
+      setScreen("home");
+      // Back to the game's dialog it was opened from.
+      if (f?.romId) setDialogRom(f.romId);
+    }
+  }, [controlsFor, setBack, reloadLibrary, openEmulators]);
   const dialogEntry = dialogRom ? (entries?.find((e) => e.rom.id === dialogRom) ?? null) : null;
   // The open game's save actions; a change to its save reads the library again.
   const dialogSaves = useMemo<SaveActions | null>(() => {
@@ -411,6 +459,12 @@ export function App() {
       : [
           ...(focusHint ? [{ glyph: "A", label: focusHint }] : []),
           ...(focusHintX && !dialogRom ? [{ glyph: "X", label: focusHintX }] : []),
+          ...(screen === "controls" && controlsFor
+            ? [
+                { glyph: "X", label: "Clear" },
+                ...(controlsFor.romId ? [{ glyph: "Y", label: "Back to default" }] : []),
+              ]
+            : []),
           ...(back ? [{ glyph: "B", label: back.label }] : []),
           { glyph: "✥", label: "Move" },
         ];
@@ -456,6 +510,13 @@ export function App() {
           setup={dialogEntry.emulator_id ? setups[dialogEntry.emulator_id] : undefined}
           saves={dialogSaves ?? undefined}
           onAnswer={answerSave}
+          onEditControls={() =>
+            dialogEntry.emulator_id && openControls(dialogEntry.emulator_id, dialogEntry.rom.system, dialogEntry.rom.id, "home")
+          }
+          onResetControls={async () => {
+            if (dialogEntry.emulator_id) await resetControls(dialogEntry.emulator_id, dialogEntry.rom.system, dialogEntry.rom.id);
+            reloadLibrary();
+          }}
           onClose={closeDialog}
           setBack={setBack}
         />
@@ -473,12 +534,38 @@ export function App() {
           }}
         />
       )}
+      {screen === "controls" && controlsError && (
+        <main className="content">
+          <p className="error">{controlsError}</p>
+        </main>
+      )}
+      {screen === "controls" && controls && controlsFor && (
+        <Controls
+          key={`${controlsFor.emulatorId}/${controlsFor.system}/${controlsFor.romId ?? ""}`}
+          view={controls}
+          held={input.held}
+          registerKeys={registerKeys}
+          setBack={setBack}
+          onBack={closeControls}
+          onSave={async (scope, layout) => {
+            await saveControls(controlsFor.emulatorId, controlsFor.system, scope === "game" ? controlsFor.romId : null, layout);
+            loadControls(controlsFor);
+          }}
+          onPromote={async (layout) => {
+            await promoteControls(controlsFor.emulatorId, controlsFor.system, controlsFor.romId!, layout);
+            loadControls(controlsFor);
+            setToast(`Made this the ${controls.emulator} default`);
+          }}
+          promoteCount={(layout) => promoteCount(controlsFor.emulatorId, controlsFor.system, controlsFor.romId!, layout)}
+        />
+      )}
       {screen === "emulators" && (
         <Emulators
           list={emulatorList}
           error={emulatorError}
           setups={setups}
           onSetup={startSetup}
+          onEditControls={(emulatorId, system) => openControls(emulatorId, system, null, "emulators")}
           onBack={() => {
             setBack(null);
             setScreen("home");

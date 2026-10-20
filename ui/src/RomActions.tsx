@@ -66,6 +66,10 @@ interface Props {
   saves?: SaveActions;
   /** Answers a save conflict the launch is waiting on. */
   onAnswer?: (choice: SaveChoice) => void;
+  /** Opens the Controls editor on this game. */
+  onEditControls?: () => void;
+  /** Drops this game's differences, back to the emulator's default. */
+  onResetControls?: () => Promise<void>;
   /** For tests: what "today" is. */
   now?: Date;
 }
@@ -119,6 +123,8 @@ export function RomDialog({
   setBack,
   saves,
   onAnswer,
+  onEditControls,
+  onResetControls,
   now,
 }: Props) {
   const [view, setView] = useState<View>("main");
@@ -238,6 +244,33 @@ export function RomDialog({
                 <span className="muted small">Comes in a later update</span>
               </div>
             ))}
+          </section>
+        )}
+        {onEditControls && entry.emulator_ready && (
+          <section className="functions" aria-label="Controls">
+            <h3 className="group-label">Controls</h3>
+            <span className="body-text">
+              {entry.control_differences === 0
+                ? `${entry.emulator} default`
+                : `Custom for this game · ${entry.control_differences} ${entry.control_differences === 1 ? "button differs" : "buttons differ"} from default`}
+            </span>
+            <div className="dialog-actions start">
+              <button className="button outline" data-focusable data-hint="Edit" type="button" disabled={playing} onClick={onEditControls}>
+                Edit controls
+              </button>
+              {entry.control_differences > 0 && onResetControls && (
+                <button
+                  className="button outline"
+                  data-focusable
+                  data-hint="Reset"
+                  type="button"
+                  disabled={playing}
+                  onClick={() => void onResetControls()}
+                >
+                  Reset to {entry.emulator} default
+                </button>
+              )}
+            </div>
           </section>
         )}
         {saves && entry.emulator_ready && (

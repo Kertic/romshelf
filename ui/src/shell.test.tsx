@@ -89,6 +89,7 @@ describe("tile status", () => {
     in_steam: false,
     save: { last_synced_hash: null, last_backup_at: null, last_backup_device: null, pending: false, last_error: null },
     keeps_states: false,
+    control_differences: 0,
   };
   it("follows the guide's wording", () => {
     expect(tileStatus(base).text).toBe("On Deck");
