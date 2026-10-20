@@ -65,6 +65,7 @@ pub fn run() -> i32 {
             launch_command(target)
         }
         Some(Command::Doctor { id: Some(id) }) => doctor_launch(&id),
+        Some(Command::Doctor { id: None }) => doctor_all(),
         Some(Command::Auth(cmd)) => {
             let conn = match Paths::for_app().and_then(|p| Connection::real(&p)) {
                 Ok(c) => c,
@@ -231,13 +232,6 @@ pub fn run() -> i32 {
                     1
                 }
             }
-        }
-        Some(cmd) => {
-            eprintln!(
-                "romshelf {}: not implemented yet in this build.",
-                cmd.name()
-            );
-            2
         }
     }
 }
@@ -978,6 +972,56 @@ fn launch_command(target: Target) -> i32 {
     run_interface(state, Some(rom_id))
 }
 
+/// `romshelf doctor`: every check of the setup, with one fix for each problem. Exit 1 when
+/// something Romshelf needs is broken.
+fn doctor_all() -> i32 {
+    let state = match open_state() {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    match doctor_checks(&state) {
+        Ok(checks) => {
+            print!("{}", romshelf_core::doctor::report(&checks));
+            romshelf_core::doctor::exit_code(&checks)
+        }
+        Err(e) => {
+            eprintln!("{}", UiError::from(e).message);
+            1
+        }
+    }
+}
+
+/// Every check of the setup, for `romshelf doctor` and "Copy diagnostics".
+pub(crate) fn doctor_checks(
+    state: &AppState,
+) -> romshelf_core::Result<Vec<romshelf_core::doctor::Check>> {
+    let settings = state.connection.settings()?;
+    let signed_in = state
+        .connection
+        .status()
+        .map(|s| s.signed_in)
+        .unwrap_or(false);
+    let steam = romshelf_core::steam::FsSteamFiles {
+        steam_root: state.paths.steam_root.clone(),
+    };
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| Error::External(e.to_string()))?;
+    Ok(romshelf_core::doctor::run(
+        &romshelf_core::doctor::DoctorContext {
+            db: &db,
+            paths: &state.paths,
+            registry: &state.registry,
+            runner: state.runner.as_ref(),
+            steam: &steam,
+            account: settings.account.clone().filter(|_| signed_in),
+            layout: settings.drive.as_ref().map(|d| d.layout.clone()),
+            drive: signed_in.then_some(state.connection.drive.as_ref()),
+        },
+    ))
+}
+
 /// `romshelf doctor --id`: each step a launch would take, without doing any of it.
 fn doctor_launch(id: &str) -> i32 {
     let state = match open_state() {
@@ -1112,7 +1156,15 @@ fn run_interface(state: AppState, launch: Option<String>) -> i32 {
             {
                 let state = app.state::<AppState>();
                 let result = match state.db.lock() {
-                    Ok(db) => storage::reconcile(&db, &state.paths).map(|_| ()),
+                    Ok(db) => storage::reconcile(&db, &state.paths)
+                        .and_then(|_| {
+                            romshelf_core::saves::recover_interrupted(
+                                &db,
+                                &state.registry,
+                                &state.paths,
+                            )
+                        })
+                        .map(|_| ()),
                     Err(_) => Ok(()),
                 };
                 if let Err(e) = result {

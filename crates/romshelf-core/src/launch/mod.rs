@@ -308,6 +308,9 @@ pub fn run(
         }
     }
 
+    // A restore that Romshelf was ended in the middle of is put right first.
+    let _ = saves::recover_interrupted(&ctx.db(), ctx.registry, ctx.paths);
+
     // Romshelf's session folder is checked before every launch, so an emulator set up by an
     // earlier version gets anything added since (Dolphin's copied settings).
     adapter.prepare_session(ctx.paths)?;
@@ -460,6 +463,12 @@ fn log_launch(
             line.push_str(&format!("    {out}\n"));
         }
     }
+    // Past 1 MB the log moves to launch.log.1, keeping three.
+    let _ = crate::diagnostics::rotate(
+        &dir.join("launch.log"),
+        crate::diagnostics::LOG_MAX_BYTES,
+        crate::diagnostics::LOGS_KEPT,
+    );
     let _ = std::fs::create_dir_all(&dir).and_then(|_| {
         std::fs::OpenOptions::new()
             .create(true)

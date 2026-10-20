@@ -3658,6 +3658,7 @@ dependencies = [
  "ed25519-dalek",
  "md-5",
  "romshelf-core",
+ "rusqlite",
  "serde_json",
  "sha2",
  "tempfile",

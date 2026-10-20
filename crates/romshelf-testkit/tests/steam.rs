@@ -468,3 +468,33 @@ fn the_layout_starts_from_steams_template() {
     assert!(out.contains("\"Title\" \"Romshelf\""));
     assert!(out.contains("key_press F9"));
 }
+
+#[test]
+fn romshelf_itself_can_be_in_steam_and_a_moved_install_is_followed() {
+    let mut r = Rig::new();
+    r.db.set_setting(apply::SELF_SETTING, "1").unwrap();
+    assert_eq!(apply::apply(&r.ctx(1)).unwrap().added, 1);
+    let list = r.entries();
+    let me = list
+        .iter()
+        .find(|e| vdf::int_of(e, "appid") == Some(apply::self_app_id()))
+        .unwrap();
+    assert_eq!(vdf::str_of(me, "AppName").as_deref(), Some("Romshelf"));
+    assert_eq!(vdf::str_of(me, "LaunchOptions").as_deref(), Some(""));
+    // If the install path ever changes, every Romshelf entry is rewritten to it.
+    apply::set_shown(&r.db, &r.game(1, "Kirby"), true).unwrap();
+    apply::apply(&r.ctx(2)).unwrap();
+    r.paths.appimage = r.paths.appimage.with_file_name("romshelf-new.AppImage");
+    let moved = apply::apply(&r.ctx(3)).unwrap();
+    assert_eq!(moved.updated, 2);
+    let want = format!("\"{}\"", r.paths.appimage.display());
+    for e in r.entries().iter().filter(|e| {
+        let id = vdf::int_of(e, "appid");
+        id == Some(apply::self_app_id()) || id == Some(shortcuts::app_id_for("gba-00000001"))
+    }) {
+        assert_eq!(vdf::str_of(e, "Exe").unwrap(), want);
+    }
+    // Taken out again.
+    r.db.set_setting(apply::SELF_SETTING, "0").unwrap();
+    assert_eq!(apply::apply(&r.ctx(4)).unwrap().removed, 1);
+}

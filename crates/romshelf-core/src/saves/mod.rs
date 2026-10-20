@@ -787,6 +787,34 @@ pub fn delete_state(ctx: &SaveContext, rom: &Rom, slot: &str) -> Result<()> {
     Ok(())
 }
 
+/// Repairs what a restore cut short (Romshelf ended mid-way): a half-downloaded backup
+/// (`<save folder>.restoring`) is dropped; a save moved aside (`.replaced`) goes back if the
+/// restored one never arrived, and is dropped if it did. Run at start-up.
+pub fn recover_interrupted(db: &Database, registry: &Registry, paths: &Paths) -> Result<usize> {
+    let mut fixed = 0;
+    for rom in db.roms()? {
+        let Some(adapter) = registry.for_system(rom.system) else {
+            continue;
+        };
+        let dir = adapter.save_dir(&rom, paths);
+        let incoming = sibling(&dir, "restoring");
+        let replaced = sibling(&dir, "replaced");
+        if incoming.exists() {
+            std::fs::remove_dir_all(&incoming)?;
+            fixed += 1;
+        }
+        if replaced.exists() {
+            if dir.exists() {
+                std::fs::remove_dir_all(&replaced)?;
+            } else {
+                std::fs::rename(&replaced, &dir)?;
+            }
+            fixed += 1;
+        }
+    }
+    Ok(fixed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

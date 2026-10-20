@@ -1,5 +1,63 @@
 # Progress
 
+## Stage 10: packaging and hardening (branch `stage-10-packaging`, on top of stage 9)
+
+Status: **built overnight while you were away; waiting for the on-Deck checks.** Self-update and the release workflow (steps 3 and 9) were done earlier as stage 10a.
+
+### Built
+
+- **Install location:** kept at `~/Applications/romshelf.AppImage`. That's CLAUDE.md's fixed decision 8 and what your Deck and its shortcuts use, though the stage file says `~/Applications/Romshelf/romshelf.AppImage`. If the path ever changes, `romshelf steam apply` rewrites every Romshelf shortcut's `Exe` and `StartDir` (tested).
+- **Installer** (`scripts/install.sh`, checked by ShellCheck in CI):
+  - Downloads the latest release and checks its SHA-256 against the release's manifest.
+  - Keeps any current version as `.previous`.
+  - Links `~/.local/bin/romshelf` and writes a desktop entry.
+  - Runs **`romshelf steam add-self`** (new), which puts Romshelf itself in Steam (tagged, no launch options, with Romshelf's controller layout).
+- **Database migrations:** before migrating, the index is copied to `index.sqlite.v<old>.bak`. Tested from every earlier schema (1 to 4): data kept, a backup of the right version, and no second backup when nothing migrates. Drive's `settings.json` already refuses newer schemas (stage 1).
+- **Logs:** `launch.log` rotates past 1 MB, keeping `.1` to `.3`.
+- **Copy diagnostics** (now in `diagnostics.rs`):
+  - It holds versions, storage, `doctor`'s checks, the game count and the last 40 launches.
+  - Google access and refresh tokens and client secrets are replaced with `<redacted>`.
+  - Every ROM's file name, stem and display name is replaced with `<rom>`.
+- **`romshelf doctor`** (no `--id`), every check with one fix:
+  - Google account
+  - Drive folder (found, in the trash, or couldn't reach Google)
+  - ROM storage present and writable
+  - the install (there, executable)
+  - each emulator (installed, or needed by your games)
+  - a Steam account
+  - Steam shortcuts running this install
+  - saves waiting to back up
+  - the library index matching the disk
+
+  It exits 1 when something fails. Every subcommand now exists, so the "not implemented" fallback is gone.
+- **Crash safety:** a save restore Romshelf was ended in the middle of is repaired at the next start and before each launch. A half-downloaded backup is dropped; a save moved aside goes back if the restored one never arrived, and is cleared if it did. Partial downloads were already `.part` files that resume and are checked against Drive's MD5 (stage 3). A launch ended by Steam is backed up at the next run (stage 6).
+- **Offline:** a downloaded game launches with no network at any step, and its backup queues (tested with Drive refusing every call).
+- **README.md:** install, Google setup, adding games, playing, what Romshelf touches and never touches, and what to do when something's wrong.
+
+### Tests
+
+- 14 `doctor` tests: a healthy install all green, and each check made to fail with its message and fix (one runs on Linux only).
+- 3 diagnostics tests: rotation keeps three, small logs stay, and tokens, secrets and ROM names are taken out.
+- Migration from every earlier schema.
+- An interrupted restore repaired in both orders.
+- An offline launch.
+- Romshelf's own shortcut, and a moved install followed by every shortcut.
+- A parse test for `steam add-self`.
+- From stage 10a: 17 updater tests (newer installed, bad checksum and forged signature rejected, interrupted download leaves the current version, rollback).
+
+### Deferred
+
+- **Killing the process at each pipeline step:** that needs a harness that runs the real binary and kills it. Covered instead step by step: downloads resume, a launch cut short is backed up at the next run, an interrupted restore is repaired, and the launch lock of an ended Romshelf is ignored.
+- **WebDriver end-to-end and visual regression** (from stage 9): still to be built in CI.
+
+### On-Deck checklist
+
+- [ ] On a Deck (or user profile) that has never had Romshelf: run the installer, complete first run, add a ROM, play it from Steam. (Your Deck already has a hand-made "romshelf.AppImage" shortcut; the installer adds its own "Romshelf" beside it.)
+- [ ] Update to a newer build: existing Steam shortcuts still launch.
+- [ ] Airplane mode: launch a downloaded game from Steam, play, quit; the backup uploads when the network returns.
+- [ ] Remove the SD card holding the ROMs: the app explains what's wrong and recovers when it's reinserted.
+- [ ] `romshelf doctor` reports all green on a healthy install.
+
 ## Stage 9: interface completion (branch `stage-09-interface`, on top of stage 8)
 
 Status: **built overnight while you were away, as you asked; waiting for the on-Deck checks.** Stage 8's last check (RetroArch loading the per-game remap file) is still to do too.
