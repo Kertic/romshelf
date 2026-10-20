@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LibraryEntry, LocationState, SyncStatus } from "./api";
 import { Home } from "./Home";
@@ -99,7 +99,7 @@ describe("Library screen", () => {
     render(<Home {...base} entries={LIB} />);
     expect(screen.getByRole("heading", { name: "All systems" })).toBeTruthy();
     expect(screen.getByText("3 ROMs in Drive · 2 on Deck")).toBeTruthy();
-    expect(screen.getByText("Kirby")).toBeTruthy();
+    expect(document.querySelector(".grid")!.textContent).toContain("Kirby");
     expect(screen.getByText("Not recognized")).toBeTruthy();
     expect(screen.getByText("GameCube / Shadow the Hedgehog (USA).zip")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Shadow/ })).toBeNull();
@@ -152,5 +152,27 @@ describe("Library screen", () => {
     render(<Home {...base} entries={LIB} sync={{ state: "offline", last_synced_at: null, message }} />);
     expect(screen.getByText(message)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Offline" })).toBeTruthy();
+  });
+});
+
+describe("drawer", () => {
+  const base = {
+    info: null,
+    error: null,
+    driveFolder: "My Drive / EmuSuite / Emulation",
+    onOpenSpike: () => {},
+    onQuit: () => {},
+  };
+  it("shows the focused tile's game, with its main action", () => {
+    const onPlay = vi.fn();
+    const onOpen = vi.fn();
+    render(<Home {...base} entries={LIB} onPlay={onPlay} onOpen={onOpen} />);
+    const tiles = document.querySelectorAll<HTMLElement>(".tile");
+    act(() => tiles[1]!.focus());
+    const drawer = screen.getByRole("complementary", { name: /details/ });
+    const title = drawer.querySelector(".drawer-title")!.textContent!;
+    expect(tiles[1]!.textContent).toContain(title);
+    fireEvent.click(screen.getByRole("button", { name: "Open ROM page: controls and Steam shortcut" }));
+    expect(onOpen).toHaveBeenCalledWith(tiles[1]!.dataset.romId, undefined);
   });
 });

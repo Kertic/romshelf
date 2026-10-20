@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LibraryEntry, SaveConflict, SaveSync, SaveVersion } from "./api";
 import { LaunchWindow } from "./LaunchWindow";
-import { RomDialog, type SaveActions } from "./RomActions";
+import { RomPage, type SaveActions } from "./RomActions";
 import { formatWhen, saveLine, SaveConflictDialog } from "./Saves";
 
 afterEach(cleanup);
@@ -65,7 +65,7 @@ function actions(extra: Partial<SaveActions> = {}): SaveActions {
 
 function open(e: LibraryEntry, saves: SaveActions) {
   render(
-    <RomDialog
+    <RomPage
       entry={e}
       onDownload={vi.fn()}
       onCancel={vi.fn()}
@@ -104,7 +104,7 @@ describe("the game's save actions", () => {
   it("shows the last backup and backs up on request", async () => {
     const saves = actions();
     open(entry({ last_backup_at: at(new Date(2026, 9, 6, 9, 0)), last_backup_device: "steamdeck" }), saves);
-    expect(screen.getByText("Backed up Oct 6 from steamdeck")).toBeTruthy();
+    expect(screen.getAllByText("Backed up Oct 6 from steamdeck").length).toBeGreaterThan(0);
     fireEvent.click(button("Back up save data"));
     await flush();
     expect(saves.backup).toHaveBeenCalled();
@@ -245,7 +245,7 @@ describe("save conflict", () => {
   it("Play from the game's dialog asks it too", () => {
     const onAnswer = vi.fn();
     render(
-      <RomDialog
+      <RomPage
         entry={entry()}
         onDownload={vi.fn()}
         onCancel={vi.fn()}

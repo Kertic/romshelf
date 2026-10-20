@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type { AppInfo, LibraryEntry, Progress, StorageStatus, SyncStatus } from "./api";
+import { Drawer } from "./Drawer";
 import { counts, inTab, syncLine, TABS } from "./library";
+import type { View } from "./RomActions";
 
 function initials(name: string): string {
   return name
@@ -50,8 +52,12 @@ interface Props {
   /** Live download progress by rom-id. */
   progress?: Record<string, Progress>;
   storage?: StorageStatus | null;
-  /** A on a tile: open its actions. */
-  onOpen?: (romId: string) => void;
+  /** A on a tile, or the drawer: open its ROM page, with a dialog open when given. */
+  onOpen?: (romId: string, view?: View) => void;
+  /** The drawer's main action. */
+  onPlay?: (romId: string) => void;
+  onDownload?: (romId: string) => void;
+  onSetup?: (emulatorId: string) => void;
   onOpenEmulators?: () => void;
   onOpenSpike: () => void;
   onQuit: () => void;
@@ -71,11 +77,16 @@ export function Home({
   progress = {},
   storage = null,
   onOpen,
+  onPlay,
+  onDownload,
+  onSetup,
   onOpenEmulators,
   onOpenSpike,
   onQuit,
 }: Props) {
   const now = useNow();
+  /** The tile with focus: the drawer shows its game. */
+  const [focused, setFocused] = useState<string | null>(null);
   const current = TABS.find((t) => t.id === tab) ?? TABS[0];
   const shown = entries ? inTab(entries, current.id) : null;
   const roms = shown?.filter((e) => e.rom.recognized) ?? [];
@@ -86,6 +97,7 @@ export function Home({
   const romsPath = `${driveFolder ?? "My Drive / Emulation"} / roms`;
   const folderPath = current.id === "all" ? romsPath : `${romsPath} / ${current.id}`;
   const syncProblem = sync && (sync.state === "offline" || sync.state === "error") ? sync.message : null;
+  const drawerEntry = roms.find((e) => e.rom.id === focused) ?? roms[0] ?? null;
 
   return (
     <>
@@ -135,6 +147,7 @@ export function Home({
         </button>
       </header>
 
+      <div className="library">
       <main className="content home">
         <div className="home-heading">
           <h1 className="section-heading">{current.heading}</h1>
@@ -189,6 +202,7 @@ export function Home({
                   data-rom-id={e.rom.id}
                   type="button"
                   onClick={() => onOpen?.(e.rom.id)}
+                  onFocus={() => setFocused(e.rom.id)}
                 >
                   <span className="cover" style={{ background: e.system_colour }}>
                     <span className="cover-system mono">{e.system_label}</span>
@@ -237,6 +251,17 @@ export function Home({
           </button>
         </div>
       </main>
+      {drawerEntry && (
+        <Drawer
+          entry={drawerEntry}
+          progress={progress[drawerEntry.rom.id]}
+          onOpen={(view) => onOpen?.(drawerEntry.rom.id, view)}
+          onPlay={() => onPlay?.(drawerEntry.rom.id)}
+          onDownload={() => onDownload?.(drawerEntry.rom.id)}
+          onSetup={() => drawerEntry.emulator_id && onSetup?.(drawerEntry.emulator_id)}
+        />
+      )}
+      </div>
     </>
   );
 }

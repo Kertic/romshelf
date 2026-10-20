@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LibraryEntry, LocationState } from "./api";
 import { tileStatus } from "./Home";
-import { emulatorLine, humanSize, progressLine, RomDialog } from "./RomActions";
+import { emulatorLine, humanSize, progressLine, RomPage } from "./RomActions";
 
 afterEach(cleanup);
 
@@ -37,7 +37,7 @@ function entry(location: LocationState): LibraryEntry {
   };
 }
 
-function setup(location: LocationState, extra: Partial<Parameters<typeof RomDialog>[0]> = {}) {
+function setup(location: LocationState, extra: Partial<Parameters<typeof RomPage>[0]> = {}) {
   const props = {
     entry: entry(location),
     onDownload: vi.fn(),
@@ -47,7 +47,7 @@ function setup(location: LocationState, extra: Partial<Parameters<typeof RomDial
     setBack: vi.fn(),
     ...extra,
   };
-  render(<RomDialog {...props} />);
+  render(<RomPage {...props} />);
   return props;
 }
 
@@ -74,11 +74,12 @@ describe("download wording", () => {
 describe("game actions", () => {
   it("offers a download for a game in Drive only", () => {
     const p = setup({ state: "drive_only" });
-    expect(screen.getByText("GBA · Kirby (USA).gba · 16 MB")).toBeTruthy();
+    expect(screen.getByText("roms / gba / Kirby (USA).gba")).toBeTruthy();
+    expect(screen.getByText("16 MB")).toBeTruthy();
     expect(screen.getByText(/In Drive only/)).toBeTruthy();
     fireEvent.click(button("Download to Deck"));
     expect(p.onDownload).toHaveBeenCalled();
-    expect(p.setBack).toHaveBeenLastCalledWith(expect.objectContaining({ label: "Close" }));
+    expect(p.setBack).toHaveBeenLastCalledWith(expect.objectContaining({ label: "Library" }));
   });
 
   it("offers Download again for a game on the Deck", () => {
@@ -156,7 +157,7 @@ describe("emulator setup from a game", () => {
   it("lists exactly the emulator's own functions", () => {
     setup({ state: "on_deck" });
     const group = screen.getByRole("region", { name: "RetroArch functions" });
-    expect([...group.querySelectorAll(".function-row > span:first-child")].map((s) => s.textContent)).toEqual([
+    expect([...group.querySelectorAll(".function-card .card-label")].map((s) => s.textContent)).toEqual([
       "Save states",
       "Cheats",
     ]);
@@ -174,7 +175,7 @@ describe("emulator setup from a game", () => {
     };
     const onSetupEmulator = vi.fn();
     render(
-      <RomDialog
+      <RomPage
         entry={gc}
         onDownload={vi.fn()}
         onCancel={vi.fn()}
@@ -185,8 +186,8 @@ describe("emulator setup from a game", () => {
       />,
     );
     expect(screen.getByText("Needs Dolphin")).toBeTruthy();
-    const buttons = screen.getAllByRole("button").map((b) => b.textContent);
-    expect(buttons[0]).toBe("Set up Dolphin");
+    // The main action takes focus first.
+    expect(button("Set up Dolphin").hasAttribute("data-autofocus")).toBe(true);
     expect(screen.getByRole("button", { name: "Download to Deck" }).className).toContain("outline");
     fireEvent.click(button("Set up Dolphin"));
     expect(onSetupEmulator).toHaveBeenCalled();
@@ -210,12 +211,12 @@ describe("emulator setup from a game", () => {
       setBack: vi.fn(),
     };
     const { rerender } = render(
-      <RomDialog {...props} setup={{ step: "Installing", percent: 45, running: true, message: null, failed: false }} />,
+      <RomPage {...props} setup={{ step: "Installing", percent: 45, running: true, message: null, failed: false }} />,
     );
     expect(screen.getByText("Installing… 45%")).toBeTruthy();
     expect((button("Set up Dolphin") as HTMLButtonElement).disabled).toBe(true);
     rerender(
-      <RomDialog
+      <RomPage
         {...props}
         setup={{
           step: null,

@@ -62,7 +62,7 @@ import { RestartSteamDialog, SteamShortcut } from "./SteamShortcut";
 import { Home } from "./Home";
 import type { Button } from "./input";
 import { nextTab } from "./library";
-import { RomDialog, type SaveActions } from "./RomActions";
+import { RomPage, type SaveActions, type View } from "./RomActions";
 import { useInput } from "./useInput";
 
 type Screen = "loading" | "first-run" | "home" | "emulators" | "launch" | "controls" | "shortcut" | "spike";
@@ -84,6 +84,8 @@ export function App() {
   const [sync, setSync] = useState<SyncStatus | null>(null);
   /** The game whose actions dialog is open. */
   const [dialogRom, setDialogRom] = useState<string | null>(null);
+  /** A dialog to open the ROM page with (from the drawer). */
+  const [dialogStart, setDialogStart] = useState<View | undefined>(undefined);
   const [progress, setProgress] = useState<Record<string, Progress>>({});
   /** The last thing that went wrong with each game's download. */
   const [transferErrors, setTransferErrors] = useState<Record<string, string>>({});
@@ -532,7 +534,7 @@ export function App() {
     <div className="frame">
       {screen === "loading" && <main className="content" />}
       {screen === "first-run" && status && <FirstRun status={status} onDone={openLibrary} setBack={setBack} />}
-      {screen === "home" && (
+      {screen === "home" && !dialogEntry && (
         <Home
           info={info}
           entries={entries}
@@ -545,15 +547,22 @@ export function App() {
           onSync={startSync}
           progress={progress}
           storage={storage}
-          onOpen={setDialogRom}
+          onOpen={(id, view) => {
+            setDialogStart(view);
+            setDialogRom(id);
+          }}
+          onPlay={startPlay}
+          onDownload={startDownload}
+          onSetup={(id) => startSetup(id)}
           onOpenSpike={() => setScreen("spike")}
           onOpenEmulators={openEmulators}
           onQuit={() => void quit()}
         />
       )}
       {screen === "home" && dialogEntry && (
-        <RomDialog
+        <RomPage
           key={dialogEntry.rom.id}
+          startWith={dialogStart}
           entry={dialogEntry}
           progress={progress[dialogEntry.rom.id]}
           error={transferErrors[dialogEntry.rom.id] ?? null}

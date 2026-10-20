@@ -855,3 +855,175 @@ button:focus {
 .check input:focus {
   outline: 2px solid var(--accent);
 }
+
+/* ROM page (UI guide 5.2 and 5.3): a 340 px left column, actions and cards on the right. */
+.rom-page {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 32px;
+  overflow-y: auto;
+}
+.rom-left {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 100%;
+}
+.cover.large {
+  height: 250px;
+}
+.cover.large .cover-initials {
+  font-size: 72px;
+}
+.cover.small {
+  width: 56px;
+  height: 84px;
+  padding: 6px;
+}
+.cover.small .cover-initials {
+  font-size: 18px;
+}
+.cover.small .cover-system {
+  font-size: 9px;
+}
+.rom-title {
+  margin: 4px 0 0;
+  font-size: 32px;
+  font-weight: 700;
+}
+.facts {
+  margin: auto 0 0;
+  display: flex;
+  gap: 28px;
+}
+.facts dt {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.facts dd {
+  margin: 4px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.facts dd.warn {
+  color: var(--warning);
+}
+.rom-right {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.rom-actions {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+.rom-actions .wide {
+  flex: 1;
+}
+.button.danger {
+  border: 1px solid var(--danger);
+  background: transparent;
+  color: var(--danger);
+}
+.function-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 8px;
+}
+.function-card {
+  min-height: 64px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--raised);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+}
+.function-card:focus {
+  outline: 2px solid var(--accent);
+}
+.function-card:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+.card-label {
+  font-size: 15px;
+  font-weight: 600;
+}
+.rom-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+.rom-cards .card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Library drawer (UI guide 5.1): the focused tile's game, 400 px on the right. */
+.library {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  height: 100%;
+  min-height: 0;
+}
+.library > .content {
+  min-width: 0;
+}
+.drawer {
+  border-left: 1px solid var(--border-subtle);
+  background: var(--surface);
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+.drawer-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+}
+.drawer .function-row {
+  width: 100%;
+  min-height: var(--target-min);
+}
+.drawer .function-row:focus {
+  outline: 2px solid var(--accent);
+}
+.drawer-file {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.link-button {
+  margin-top: auto;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-weight: 600;
+  text-align: left;
+  min-height: var(--target-min);
+  padding: 0 4px;
+}
+.link-button:focus {
+  outline: 2px solid var(--accent);
+  border-radius: var(--radius-row);
+}
+.drawer-file .button {
+  white-space: normal;
+  padding-left: 10px;
+  padding-right: 10px;
+}
