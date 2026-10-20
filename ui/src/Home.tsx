@@ -59,6 +59,8 @@ interface Props {
   onDownload?: (romId: string) => void;
   onSetup?: (emulatorId: string) => void;
   onOpenEmulators?: () => void;
+  onOpenSettings?: () => void;
+  onOpenTransfers?: () => void;
   onOpenSpike: () => void;
   onQuit: () => void;
 }
@@ -81,6 +83,8 @@ export function Home({
   onDownload,
   onSetup,
   onOpenEmulators,
+  onOpenSettings,
+  onOpenTransfers,
   onOpenSpike,
   onQuit,
 }: Props) {
@@ -97,6 +101,10 @@ export function Home({
   const romsPath = `${driveFolder ?? "My Drive / Emulation"} / roms`;
   const folderPath = current.id === "all" ? romsPath : `${romsPath} / ${current.id}`;
   const syncProblem = sync && (sync.state === "offline" || sync.state === "error") ? sync.message : null;
+  // Downloads under way and save backups waiting: the top band's Transfers count.
+  const activity = (entries ?? []).filter(
+    (e) => e.rom.location.state === "downloading" || (e.save.pending && e.save.last_error != null),
+  ).length;
   const drawerEntry = roms.find((e) => e.rom.id === focused) ?? roms[0] ?? null;
 
   return (
@@ -133,6 +141,20 @@ export function Home({
           onClick={onOpenEmulators}
         >
           Emulators
+        </button>
+        <button
+          type="button"
+          className="top-button transfers-button"
+          data-focusable
+          data-hint="Open"
+          onClick={onOpenTransfers}
+          aria-label={activity > 0 ? `Transfers, ${activity} in progress` : "Transfers"}
+        >
+          Transfers
+          {activity > 0 && <span className="transfers-count">{activity}</span>}
+        </button>
+        <button type="button" className="top-button" data-focusable data-hint="Open" onClick={onOpenSettings}>
+          Settings
         </button>
         <button
           type="button"

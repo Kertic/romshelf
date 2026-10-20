@@ -8,6 +8,7 @@ mod gamepad;
 mod library_cli;
 mod saves_cmd;
 mod state;
+mod settings_cmd;
 mod steam_cli;
 mod steam_cmd;
 mod update_cli;
@@ -471,7 +472,7 @@ fn update_ready(state: tauri::State<'_, AppState>) -> Option<String> {
 
 /// Checks for a newer build once a day, in the background, and installs it in place.
 /// Emits `update-ready` with the version when one is in place.
-fn start_update_check(app: tauri::AppHandle) {
+pub(crate) fn start_update_check(app: tauri::AppHandle) {
     let state = app.state::<AppState>();
     if state.fake {
         return;
@@ -1081,6 +1082,13 @@ fn run_interface(state: AppState, launch: Option<String>) -> i32 {
             steam_cmd::set_steam_auto_add,
             steam_cmd::steam_restart_notice,
             steam_cmd::image_files,
+            settings_cmd::settings_view,
+            settings_cmd::set_save_versions,
+            settings_cmd::sign_out,
+            settings_cmd::change_storage,
+            settings_cmd::check_for_updates,
+            settings_cmd::diagnostics,
+            settings_cmd::transfers,
             quit
         ])
         .setup(move |app| {

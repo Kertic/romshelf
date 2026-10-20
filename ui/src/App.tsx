@@ -2,6 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   answerSaveQuestion,
   controlsView,
+  changeStorage,
+  checkForUpdates,
+  diagnostics,
+  settingsView,
+  setSaveVersions,
+  signOut,
+  transfers as listTransfers,
   imageFiles,
   onSteamChanged,
   saveShortcut,
@@ -47,6 +54,8 @@ import {
   type SaveChoice,
   type ControlsView,
   type ShortcutView,
+  type SettingsView,
+  type TransferRow,
   type Progress,
   type StorageStatus,
   type SyncStatus,
@@ -59,13 +68,15 @@ import { Emulators, type SetupState } from "./Emulators";
 import { LaunchWindow, type LaunchState } from "./LaunchWindow";
 import { Controls, type KeyHandler } from "./Controls";
 import { RestartSteamDialog, SteamShortcut } from "./SteamShortcut";
+import { Settings } from "./Settings";
+import { Transfers } from "./Transfers";
 import { Home } from "./Home";
 import type { Button } from "./input";
 import { nextTab } from "./library";
 import { RomPage, type SaveActions, type View } from "./RomActions";
 import { useInput } from "./useInput";
 
-type Screen = "loading" | "first-run" | "home" | "emulators" | "launch" | "controls" | "shortcut" | "spike";
+type Screen = "loading" | "first-run" | "home" | "emulators" | "launch" | "controls" | "shortcut" | "settings" | "spike";
 
 const HOLD_TO_LEAVE_MS = 1000;
 
@@ -108,6 +119,10 @@ export function App() {
   const [controlsError, setControlsError] = useState<string | null>(null);
   /** The editor sees presses first (rebinding, X, Y, L1, R1). */
   const keyHandler = useRef<KeyHandler | null>(null);
+  /** Menu, View and Y on the Library and ROM page, set once their handlers exist. */
+  const shortcuts = useRef<Partial<Record<"menu" | "view" | "y", () => void>>>({});
+  const [settings, setSettings] = useState<SettingsView | null>(null);
+  const [transferRows, setTransferRows] = useState<TransferRow[] | null>(null);
   const registerKeys = useCallback((h: KeyHandler | null) => {
     keyHandler.current = h;
   }, []);
@@ -407,6 +422,9 @@ export function App() {
         // X on a tile that is only in Drive downloads it (UI guide section 4).
         const tile = document.activeElement as HTMLElement | null;
         if (tile?.dataset.hintX && tile.dataset.romId) startDownload(tile.dataset.romId);
+      } else if ((b === "menu" || b === "view" || b === "y") && screen === "home" && !document.querySelector("[data-dialog]")) {
+        // Menu: Settings. View: Transfers. Y: back up the save (UI guide section 4).
+        shortcuts.current[b]?.();
       } else if ((b === "l1" || b === "r1") && screen === "home" && !dialogRom) {
         setTab((t) => nextTab(t, b === "l1" ? -1 : 1));
       } else if (b === "b" && screen !== "spike") {
@@ -515,12 +533,79 @@ export function App() {
       deleteState: (slot: string) => deleteSaveState(dialogRom, slot),
     };
   }, [dialogRom, reloadLibrary]);
+  const reloadSettings = useCallback(() => {
+    settingsView()
+      .then(setSettings)
+      .catch(() => {});
+  }, []);
+  const openSettings = useCallback(() => {
+    settingsView()
+      .then((s) => {
+        setSettings(s);
+        setDialogRom(null);
+        setScreen("settings");
+      })
+      .catch((e) => setToast(e?.message ?? `Couldn't open Settings: ${String(e)}. Try again.`));
+  }, []);
+  const closeSettings = useCallback(() => {
+    setBack(null);
+    setScreen("home");
+    reloadLibrary();
+  }, [setBack, reloadLibrary]);
+  /** B before the Transfers panel opened, put back when it closes. */
+  const backBeforePanel = useRef<BackAction | null>(null);
+  const closeTransfers = useCallback(() => {
+    setTransferRows(null);
+    setBack(backBeforePanel.current);
+  }, [setBack]);
+  const openTransfers = useCallback(() => {
+    backBeforePanel.current = backRef.current;
+    setBack({ label: "Close", run: closeTransfers });
+    listTransfers()
+      .then(setTransferRows)
+      .catch(() => setTransferRows([]));
+  }, [setBack, closeTransfers]);
+  // While the panel is open, keep it current.
+  const panelOpen = transferRows != null;
+  useEffect(() => {
+    if (!panelOpen) return;
+    const t = setInterval(() => {
+      listTransfers()
+        .then(setTransferRows)
+        .catch(() => {});
+    }, 2000);
+    return () => clearInterval(t);
+  }, [panelOpen]);
+  /** Y: back up the save of the game on screen, or the focused tile's. */
+  const backupFocused = useCallback(() => {
+    const romId = dialogRom ?? (document.activeElement as HTMLElement | null)?.dataset?.romId ?? null;
+    const entry = entries?.find((e) => e.rom.id === romId);
+    if (!romId || !entry?.emulator_ready) return;
+    const name = entry.rom.display_name;
+    setToast(`Backing up ${name}…`);
+    backupSave(romId)
+      .then((out) =>
+        setToast(
+          out.kind === "uploaded"
+            ? `Backed up ${name}`
+            : out.kind === "unchanged"
+              ? `Drive already has ${name}'s save`
+              : `${name} has no save on this Deck yet`,
+        ),
+      )
+      .catch((e) => setToast(e?.message ?? `Couldn't back up ${name}. Try again.`))
+      .finally(reloadLibrary);
+  }, [dialogRom, entries, reloadLibrary]);
+  useEffect(() => {
+    shortcuts.current = { menu: openSettings, view: openTransfers, y: backupFocused };
+  }, [openSettings, openTransfers, backupFocused]);
   const hints: Hint[] =
     screen === "spike"
       ? [{ glyph: "B", label: "Hold to go back" }]
       : [
           ...(focusHint ? [{ glyph: "A", label: focusHint }] : []),
           ...(focusHintX && !dialogRom ? [{ glyph: "X", label: focusHintX }] : []),
+          ...(screen === "home" && !transferRows ? [{ glyph: "Y", label: "Back up save" }] : []),
           ...(screen === "controls" && controlsFor
             ? [
                 { glyph: "X", label: "Clear" },
@@ -556,6 +641,8 @@ export function App() {
           onSetup={(id) => startSetup(id)}
           onOpenSpike={() => setScreen("spike")}
           onOpenEmulators={openEmulators}
+          onOpenSettings={openSettings}
+          onOpenTransfers={openTransfers}
           onQuit={() => void quit()}
         />
       )}
@@ -627,6 +714,45 @@ export function App() {
             shortcutChanges.current += Math.max(1, done.added + done.updated);
           }}
           loadImages={imageFiles}
+        />
+      )}
+      {screen === "settings" && settings && (
+        <Settings
+          view={settings}
+          setBack={setBack}
+          onBack={closeSettings}
+          reload={reloadSettings}
+          actions={{
+            signOut: async () => {
+              await signOut();
+              const s = await connectionStatus();
+              setStatus(s);
+              setBack(null);
+              setScreen("first-run");
+            },
+            changeDriveFolder: () => {
+              setBack(null);
+              setScreen("first-run");
+            },
+            changeStorage,
+            setSaveVersions,
+            setAutoAdd: async (on) => {
+              await setSteamAutoAdd(on);
+            },
+            checkForUpdates,
+            diagnostics,
+            copy: async (text) => {
+              await navigator.clipboard.writeText(text);
+            },
+          }}
+        />
+      )}
+      {transferRows && (
+        <Transfers
+          rows={transferRows}
+          progress={progress}
+          onCancel={(id) => void cancelDownload(id).then(() => listTransfers().then(setTransferRows))}
+          onClose={closeTransfers}
         />
       )}
       {restart != null && <RestartSteamDialog changes={restart} onClose={() => setRestart(null)} />}
