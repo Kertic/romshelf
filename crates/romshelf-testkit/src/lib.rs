@@ -113,7 +113,11 @@ pub struct FakeProcessRunner {
     /// A file to look for each time a program "runs" (the launch lock).
     watched: Mutex<Option<std::path::PathBuf>>,
     existed: Mutex<Vec<bool>>,
+    /// Runs while each program "runs", as the emulator would (writing a save, say).
+    during: Mutex<Option<RunHook>>,
 }
+
+type RunHook = Box<dyn FnMut(&CommandSpec) + Send>;
 
 impl FakeProcessRunner {
     pub fn push_exit(&self, code: i32, delay: Duration) {
@@ -123,6 +127,11 @@ impl FakeProcessRunner {
     /// Records, at each run, whether `path` exists.
     pub fn watch(&self, path: &Path) {
         *self.watched.lock().unwrap() = Some(path.to_path_buf());
+    }
+
+    /// Calls `f` during every run, as if the program did it.
+    pub fn during_run(&self, f: impl FnMut(&CommandSpec) + Send + 'static) {
+        *self.during.lock().unwrap() = Some(Box::new(f));
     }
 
     pub fn watched_existed(&self) -> Vec<bool> {
@@ -139,6 +148,9 @@ impl ProcessRunner for FakeProcessRunner {
         self.runs.lock().unwrap().push(cmd.clone());
         if let Some(p) = self.watched.lock().unwrap().as_ref() {
             self.existed.lock().unwrap().push(p.exists());
+        }
+        if let Some(f) = self.during.lock().unwrap().as_mut() {
+            f(cmd);
         }
         let (code, delay) = self
             .script

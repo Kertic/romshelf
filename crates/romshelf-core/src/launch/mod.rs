@@ -1,9 +1,9 @@
 //! The launch pipeline: what `romshelf launch --id <rom-id>` (every Steam shortcut), the Play
 //! button and `romshelf doctor --id` share.
 //!
-//! Find the game; download it if it isn't on the Deck; set up its emulator if needed; check
-//! saves (stage 6); write controls (stage 7); start the emulator and wait; back up saves
-//! (stage 6). The emulator's exit code is returned unchanged.
+//! Find the game; download it if it isn't on the Deck; set up its emulator if needed; check its
+//! save against Drive; write controls (stage 7); start the emulator and wait; back up the save.
+//! The emulator's exit code is returned unchanged, whatever happens to the backup.
 
 use crate::clock::Clock;
 use crate::db::Database;
@@ -15,6 +15,7 @@ use crate::http::HttpTransport;
 use crate::model::{LocationState, Rom, RomId};
 use crate::paths::Paths;
 use crate::process::{PackageRunner, ProcessRunner};
+use crate::saves::{self, SaveCheck, SaveChoice, SaveConflict, SaveContext};
 use crate::storage::{self, DiskSpace};
 use crate::transfer::{self, Downloader};
 use crate::{Error, Result};
@@ -68,6 +69,10 @@ pub enum LaunchEvent {
     Progress {
         percent: u8,
     },
+    /// Something worth a line in the interface ("Restored your save from Drive").
+    Notice {
+        message: String,
+    },
 }
 
 /// Everything a launch needs from outside. The same for the interface and the command line.
@@ -86,11 +91,29 @@ pub struct LaunchContext<'a> {
     pub clock: &'a dyn Clock,
     pub retry_delay: Duration,
     pub max_attempts: u32,
+    /// This machine's name, recorded in save backups.
+    pub device: &'a str,
+    /// Asks the user about a save conflict. `None` means no one can be asked now (a launch
+    /// with no window): the launch stops with `Error::NeedsAnswer` before anything starts.
+    pub ask: &'a (dyn Fn(&SaveConflict) -> Option<SaveChoice> + Sync),
 }
 
 impl LaunchContext<'_> {
     fn db(&self) -> MutexGuard<'_, Database> {
         self.db.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Save backups need a Drive folder; `None` before one is chosen.
+    pub fn saves(&self) -> Option<SaveContext<'_>> {
+        self.layout.map(|layout| SaveContext {
+            db: self.db,
+            drive: self.drive,
+            layout,
+            registry: self.registry,
+            paths: self.paths,
+            clock: self.clock,
+            device: self.device,
+        })
     }
 }
 
@@ -209,7 +232,7 @@ pub fn plan(ctx: &LaunchContext, target: &Target) -> Result<Vec<PlannedStep>> {
     }
     out.push(PlannedStep {
         step: Step::SaveCheck,
-        detail: "Check Drive for a newer save (arrives with save backups)".into(),
+        detail: "Compare the save with Drive's newest backup; restore it if only Drive's changed, ask if both did".into(),
     });
     out.push(PlannedStep {
         step: Step::Controls,
@@ -222,7 +245,7 @@ pub fn plan(ctx: &LaunchContext, target: &Target) -> Result<Vec<PlannedStep>> {
     });
     out.push(PlannedStep {
         step: Step::Backup,
-        detail: "Back up the save to Drive (arrives with save backups)".into(),
+        detail: "Back up the save to Drive when the game ends".into(),
     });
     Ok(out)
 }
@@ -287,11 +310,19 @@ pub fn run(
     // Romshelf's session folder is checked before every launch, so an emulator set up by an
     // earlier version gets anything added since (Dolphin's copied settings).
     adapter.prepare_session(ctx.paths)?;
+    adapter.prepare_game(&rom, ctx.paths)?;
 
-    // Stage 6 fills these in.
     events(LaunchEvent::Step {
         step: Step::SaveCheck,
     });
+    if let Some(sc) = ctx.saves() {
+        // Backups owed from earlier games (Steam ended Romshelf, or Drive was unreachable).
+        let _ = saves::flush_pending(&sc);
+        check_save(ctx, &sc, &rom, events)?;
+    }
+    // Owed until the backup after the game succeeds, even if Romshelf is ended with the game.
+    saves::mark_pending(&ctx.db(), &rom.id)?;
+
     // Stage 7 fills this in.
     events(LaunchEvent::Step {
         step: Step::Controls,
@@ -306,12 +337,77 @@ pub fn run(
         ctx.process.run_and_wait(&cmd)
     };
 
-    // Stage 6 fills this in. It runs whatever the exit code was.
+    // Whatever the exit code was. The emulator has exited, so its save is complete. A failed
+    // backup stays owed for the next run and never changes the exit code.
     events(LaunchEvent::Step { step: Step::Backup });
+    if let Some(sc) = ctx.saves() {
+        match saves::backup(&sc, &rom) {
+            Ok(saves::BackupOutcome::Uploaded { .. }) => events(LaunchEvent::Notice {
+                message: format!("Backed up {}", rom.display_name),
+            }),
+            Ok(_) => {}
+            Err(_) => events(LaunchEvent::Notice {
+                message: "Couldn't back up the save. Romshelf tries again next time.".into(),
+            }),
+        }
+        let _ = saves::mirror_states(&sc, &rom);
+    }
 
     let code = code?;
     log_launch(ctx, &rom, adapter, started.elapsed(), code);
     Ok(code)
+}
+
+/// The save check: a newer save in Drive (only) is restored; a conflict is asked about. When
+/// Drive can't be reached, the game starts with the save on the Deck.
+fn check_save(
+    ctx: &LaunchContext,
+    sc: &SaveContext,
+    rom: &Rom,
+    events: &mut dyn FnMut(LaunchEvent),
+) -> Result<()> {
+    let _ = saves::fetch_states(sc, rom);
+    let check = match saves::check(sc, rom) {
+        Ok(c) => c,
+        Err(_) => return Ok(()),
+    };
+    match check {
+        SaveCheck::InSync | SaveCheck::DeckNewer => Ok(()),
+        SaveCheck::DriveNewer { version } => {
+            saves::restore(sc, rom, &version.id)?;
+            events(LaunchEvent::Notice {
+                message: format!("Restored the newer save from {}", version.device),
+            });
+            Ok(())
+        }
+        SaveCheck::Conflict { conflict } => match (ctx.ask)(&conflict) {
+            None => Err(Error::NeedsAnswer),
+            Some(choice) => saves::resolve_conflict(sc, rom, choice),
+        },
+    }
+}
+
+/// A game is running: `launch.lock` names a process that is still alive. A lock left behind
+/// when Steam ended Romshelf names a process that is gone.
+pub fn game_running(paths: &Paths) -> bool {
+    let Ok(text) = std::fs::read_to_string(paths.launch_lock()) else {
+        return false;
+    };
+    match text.trim().parse::<u32>() {
+        Ok(pid) => process_alive(pid),
+        Err(_) => false,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn process_alive(pid: u32) -> bool {
+    std::path::Path::new(&format!("/proc/{pid}")).exists()
+}
+
+/// Elsewhere (development only) a lock is trusted while it exists.
+#[cfg(not(target_os = "linux"))]
+fn process_alive(_pid: u32) -> bool {
+    true
 }
 
 /// `launch.lock` holds this process's id while the emulator runs, so the self-updater waits.

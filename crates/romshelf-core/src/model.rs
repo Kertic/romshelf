@@ -305,3 +305,17 @@ mod tests {
         );
     }
 }
+
+/// Where a game's save stands against Drive.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SaveSync {
+    /// The save set's hash when this Deck and Drive last agreed; `None` before the first time.
+    pub last_synced_hash: Option<String>,
+    pub last_backup_at: Option<i64>,
+    pub last_backup_device: Option<String>,
+    /// A backup is owed: the game was started and its save hasn't been backed up since (the
+    /// game is still running, Steam ended Romshelf, or Drive couldn't be reached).
+    pub pending: bool,
+    /// Why the last backup failed, for the Library.
+    pub last_error: Option<String>,
+}

@@ -3,7 +3,7 @@
 use crate::db::Database;
 use crate::emulators::setup::{self, SetupStep};
 use crate::emulators::{DeclaredAction, Registry, RetroArch};
-use crate::model::{LocationState, Rom, System};
+use crate::model::{LocationState, Rom, SaveSync, System};
 use crate::Result;
 use serde::Serialize;
 
@@ -25,6 +25,10 @@ pub struct LibraryEntry {
     /// The emulator's own functions for the ROM page.
     pub actions: Vec<DeclaredAction>,
     pub in_steam: bool,
+    /// Last backup, and whether one is owed.
+    pub save: SaveSync,
+    /// Romshelf keeps this game's save states (RetroArch).
+    pub keeps_states: bool,
 }
 
 pub fn entries(db: &Database, registry: &Registry) -> Result<Vec<LibraryEntry>> {
@@ -43,6 +47,8 @@ pub fn entries(db: &Database, registry: &Registry) -> Result<Vec<LibraryEntry>> 
             };
             Ok(LibraryEntry {
                 in_steam: db.shortcut(&rom.id)?.is_some(),
+                save: db.save_sync(&rom.id)?,
+                keeps_states: adapter.is_some_and(|a| a.keeps_states()),
                 system_label: rom.system.label().into(),
                 system_colour: rom.system.colour().into(),
                 emulator: adapter.map(|a| a.name().to_string()),

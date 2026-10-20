@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
-import type { LibraryEntry } from "./api";
+import type { LibraryEntry, SaveChoice, SaveConflict } from "./api";
+import { SaveConflictDialog } from "./Saves";
 
 /** What the interface knows about a game being prepared or played. */
 export interface LaunchState {
@@ -10,6 +11,8 @@ export interface LaunchState {
   running: boolean;
   /** What went wrong, for the error view. */
   error: string | null;
+  /** A save conflict the launch is waiting on an answer to. */
+  conflict?: SaveConflict | null;
 }
 
 function initials(name: string): string {
@@ -26,13 +29,16 @@ interface Props {
   launch: LaunchState;
   onRetry: () => void;
   onOpenRomshelf: () => void;
+  /** Answers the save conflict the launch is waiting on. */
+  onAnswer?: (choice: SaveChoice) => void;
 }
 
 /**
  * The launch window (UI guide section 8): shown only when `romshelf launch` has to download or
- * set something up first, or something went wrong. Small cover, title, then progress or the error.
+ * set something up first, ask about a save conflict, or something went wrong. Small cover, title,
+ * then progress, the question or the error.
  */
-export function LaunchWindow({ entry, launch, onRetry, onOpenRomshelf }: Props) {
+export function LaunchWindow({ entry, launch, onRetry, onOpenRomshelf, onAnswer }: Props) {
   const title = entry?.rom.display_name ?? "Starting your game";
   const column = useRef<HTMLDivElement>(null);
   // An error puts focus on Try again, so A retries straight away.
@@ -86,6 +92,7 @@ export function LaunchWindow({ entry, launch, onRetry, onOpenRomshelf }: Props) 
           </div>
         )}
       </div>
+      {launch.conflict && onAnswer && <SaveConflictDialog conflict={launch.conflict} onAnswer={onAnswer} />}
     </main>
   );
 }

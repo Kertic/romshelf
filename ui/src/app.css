@@ -682,3 +682,26 @@ button:focus {
   opacity: 0.35;
   animation: sync-pulse 1s ease-in-out infinite alternate;
 }
+
+/* Save backup (stage 6). */
+.dialog-actions.start {
+  justify-content: flex-start;
+  margin-top: 0;
+}
+.row.selected {
+  border-color: var(--accent);
+}
+/* Toasts (UI guide section 7): bottom centre above the hint bar, one line. */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 64px;
+  transform: translateX(-50%);
+  padding: 10px 18px;
+  border-radius: var(--radius-row);
+  background: var(--raised);
+  border: 1px solid var(--border-strong);
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 20;
+}

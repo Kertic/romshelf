@@ -5,6 +5,7 @@ pub mod cli;
 mod emulators_cli;
 mod gamepad;
 mod library_cli;
+mod saves_cmd;
 mod state;
 mod update_cli;
 
@@ -22,6 +23,7 @@ use romshelf_core::launch::{self, LaunchContext, LaunchEvent, Step, Target};
 use romshelf_core::library::{self, LibraryEntry};
 use romshelf_core::model::RomId;
 use romshelf_core::paths::Paths;
+use romshelf_core::saves::{SaveChoice, SaveConflict};
 use romshelf_core::storage::{self, DiskSpace, FsDiskSpace};
 use romshelf_core::transfer::{self, Downloader};
 use romshelf_core::update::{self, Outcome};
@@ -427,6 +429,9 @@ fn run_sync(app: &tauri::AppHandle) -> SyncStatus {
             }
         }
     };
+    if status.state == "synced" {
+        saves_cmd::flush_in_background(app);
+    }
     set_sync_status(app, status.clone());
     status
 }
@@ -721,9 +726,11 @@ fn quit(app: tauri::AppHandle) {
     app.exit(0);
 }
 
-/// Runs `f` with a launch context built from the app state.
+/// Runs `f` with a launch context built from the app state. `ask` answers a save conflict;
+/// `no_answer` when there is no window to ask in.
 fn with_launch_ctx<T>(
     state: &AppState,
+    ask: &(dyn Fn(&SaveConflict) -> Option<SaveChoice> + Sync),
     f: impl FnOnce(&LaunchContext) -> romshelf_core::Result<T>,
 ) -> romshelf_core::Result<T> {
     let folder = state.connection.settings()?.drive;
@@ -741,15 +748,22 @@ fn with_launch_ctx<T>(
         clock: &SystemClock,
         retry_delay: DOWNLOAD_RETRY,
         max_attempts: DOWNLOAD_ATTEMPTS,
+        device: &state.device,
+        ask,
     };
     f(&ctx)
 }
 
+/// A launch with no window can't ask about a save conflict.
+fn no_answer(_: &SaveConflict) -> Option<SaveChoice> {
+    None
+}
+
 /// What the interface hears while a game is prepared and played.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Default, Serialize)]
 struct LaunchUpdate {
     rom_id: String,
-    /// "step", "progress", "finished" or "failed".
+    /// "step", "progress", "notice", "question", "finished" or "failed".
     kind: &'static str,
     step: Option<Step>,
     /// The step as the launch window shows it: "Downloading", "Setting up Dolphin".
@@ -758,11 +772,13 @@ struct LaunchUpdate {
     /// The emulator's exit code, when finished.
     code: Option<i32>,
     message: Option<String>,
+    /// A save conflict to answer with `answer_save_question` ("question").
+    conflict: Option<SaveConflict>,
 }
 
-/// Starts a game: downloads it and sets up its emulator if needed, then runs it. Returns at
-/// once; `launch-update` events follow. In the launch window, Romshelf exits with the
-/// emulator's exit code when the game ends.
+/// Starts a game: downloads it and sets up its emulator if needed, checks its save, then runs
+/// it. Returns at once; `launch-update` events follow. In the launch window, Romshelf exits
+/// with the emulator's exit code when the game ends.
 #[tauri::command]
 fn play(app: tauri::AppHandle, rom_id: String) -> Result<(), UiError> {
     {
@@ -780,22 +796,28 @@ fn play(app: tauri::AppHandle, rom_id: String) -> Result<(), UiError> {
             .lock()
             .map(|t| t.is_some())
             .unwrap_or(false);
-        let update = |kind, step: Option<Step>, label, percent, code, message| {
+        let send = |u: LaunchUpdate| {
             let _ = app.emit(
                 "launch-update",
                 LaunchUpdate {
                     rom_id: rom_id.clone(),
-                    kind,
-                    step,
-                    label,
-                    percent,
-                    code,
-                    message,
+                    ..u
                 },
             );
         };
+        // The launch waits here until the interface answers.
+        let ask = |c: &SaveConflict| -> Option<SaveChoice> {
+            let (tx, rx) = std::sync::mpsc::channel();
+            *state.save_answer.lock().ok()? = Some(tx);
+            send(LaunchUpdate {
+                kind: "question",
+                conflict: Some(c.clone()),
+                ..LaunchUpdate::default()
+            });
+            rx.recv().ok()
+        };
         let target = Target::Id(rom_id.clone());
-        let result = with_launch_ctx(&state, |ctx| {
+        let result = with_launch_ctx(&state, &ask, |ctx| {
             let emulator = {
                 let db = state
                     .db
@@ -812,18 +834,23 @@ fn play(app: tauri::AppHandle, rom_id: String) -> Result<(), UiError> {
                             let _ = w.hide();
                         }
                     }
-                    update(
-                        "step",
-                        Some(step),
-                        Some(step.label(&emulator)),
-                        None,
-                        None,
-                        None,
-                    )
+                    send(LaunchUpdate {
+                        kind: "step",
+                        step: Some(step),
+                        label: Some(step.label(&emulator)),
+                        ..LaunchUpdate::default()
+                    })
                 }
-                LaunchEvent::Progress { percent } => {
-                    update("progress", None, None, Some(percent), None, None)
-                }
+                LaunchEvent::Progress { percent } => send(LaunchUpdate {
+                    kind: "progress",
+                    percent: Some(percent),
+                    ..LaunchUpdate::default()
+                }),
+                LaunchEvent::Notice { message } => send(LaunchUpdate {
+                    kind: "notice",
+                    message: Some(message),
+                    ..LaunchUpdate::default()
+                }),
             })
         });
         if let Ok(mut p) = state.playing.lock() {
@@ -832,30 +859,42 @@ fn play(app: tauri::AppHandle, rom_id: String) -> Result<(), UiError> {
         let _ = app.emit("library-changed", ());
         match result {
             Ok(code) => {
-                update("finished", None, None, None, Some(code), None);
+                send(LaunchUpdate {
+                    kind: "finished",
+                    code: Some(code),
+                    ..LaunchUpdate::default()
+                });
                 if launching {
                     // Back to Steam, with the emulator's exit code.
                     app.exit(code);
                 }
             }
+            // Cancelled at the save question: the launch window has nothing left to do.
+            Err(Error::Cancelled) if launching => app.exit(1),
             Err(e) => {
                 if launching {
                     if let Some(w) = app.get_webview_window("main") {
                         let _ = w.show();
                     }
                 }
-                update(
-                    "failed",
-                    None,
-                    None,
-                    None,
-                    None,
-                    Some(UiError::from(e).message),
-                );
+                send(LaunchUpdate {
+                    kind: "failed",
+                    message: Some(UiError::from(e).message),
+                    ..LaunchUpdate::default()
+                });
             }
         }
     });
     Ok(())
+}
+
+/// The answer to the save question a launch is waiting on: "keep_deck", "use_drive" or
+/// "cancel".
+#[tauri::command]
+fn answer_save_question(state: tauri::State<'_, AppState>, choice: SaveChoice) {
+    if let Some(tx) = state.save_answer.lock().ok().and_then(|mut s| s.take()) {
+        let _ = tx.send(choice);
+    }
 }
 
 /// The game the launch window is for, if this is one.
@@ -865,8 +904,8 @@ fn launch_target(state: tauri::State<'_, AppState>) -> Option<String> {
 }
 
 /// `romshelf launch`: a game that is ready starts at once with no window; otherwise the launch
-/// window shows the download or setup first. Exits with the emulator's exit code; 2 when the
-/// game isn't known.
+/// window shows the download or setup first, or asks about a save conflict. Exits with the
+/// emulator's exit code; 2 when the game isn't known.
 fn launch_command(target: Target) -> i32 {
     let state = match open_state() {
         Ok(s) => s,
@@ -881,13 +920,20 @@ fn launch_command(target: Target) -> i32 {
         eprintln!("{}", UiError::from(e).message);
         code
     };
-    let needs_window = match with_launch_ctx(&state, |ctx| launch::needs_window(ctx, &target)) {
-        Ok(n) => n,
-        Err(e) => return failed(e),
-    };
+    let needs_window =
+        match with_launch_ctx(&state, &no_answer, |ctx| launch::needs_window(ctx, &target)) {
+            Ok(n) => n,
+            Err(e) => return failed(e),
+        };
     if !needs_window {
-        let result = with_launch_ctx(&state, |ctx| launch::run(ctx, &target, &mut |_| {}));
-        return result.unwrap_or_else(failed);
+        let result = with_launch_ctx(&state, &no_answer, |ctx| {
+            launch::run(ctx, &target, &mut |_| {})
+        });
+        match result {
+            // Only the window can ask which save to keep; nothing has started yet.
+            Err(Error::NeedsAnswer) => {}
+            other => return other.unwrap_or_else(failed),
+        }
     }
     let rom_id = {
         let db = match state.db.lock() {
@@ -909,7 +955,7 @@ fn doctor_launch(id: &str) -> i32 {
         Err(code) => return code,
     };
     let target = Target::Id(id.to_string());
-    match with_launch_ctx(&state, |ctx| launch::plan(ctx, &target)) {
+    match with_launch_ctx(&state, &no_answer, |ctx| launch::plan(ctx, &target)) {
         Ok(steps) => {
             println!("Launching {id} would:");
             for (i, s) in steps.iter().enumerate() {
@@ -985,7 +1031,13 @@ fn run_interface(state: AppState, launch: Option<String>) -> i32 {
             emulators,
             setup_emulator,
             play,
+            answer_save_question,
             launch_target,
+            saves_cmd::save_versions,
+            saves_cmd::backup_save,
+            saves_cmd::restore_save,
+            saves_cmd::save_states,
+            saves_cmd::delete_save_state,
             quit
         ])
         .setup(move |app| {
@@ -1014,6 +1066,7 @@ fn run_interface(state: AppState, launch: Option<String>) -> i32 {
             start_downloads(app.handle());
             if !launching {
                 refresh_emulators(app.handle());
+                saves_cmd::flush_in_background(app.handle());
             }
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.set_focus();

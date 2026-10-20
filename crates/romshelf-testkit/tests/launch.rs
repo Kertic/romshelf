@@ -8,6 +8,7 @@ use romshelf_core::emulators::{Dolphin, EmulatorAdapter, Registry, RetroArch};
 use romshelf_core::launch::{self, LaunchContext, LaunchEvent, Step, Target};
 use romshelf_core::model::{LocationState, Rom, System};
 use romshelf_core::paths::Paths;
+use romshelf_core::saves::{SaveChoice, SaveConflict};
 use romshelf_core::sync::{self, SyncContext};
 use romshelf_core::Error;
 use romshelf_testkit::{
@@ -80,6 +81,8 @@ impl Rig {
             clock: &self.clock,
             retry_delay: Duration::ZERO,
             max_attempts: 3,
+            device: "test-deck",
+            ask: &no_answer,
         }
     }
 
@@ -137,6 +140,11 @@ impl Rig {
     }
 }
 
+/// No one to ask: a save conflict stops the launch.
+fn no_answer(_: &SaveConflict) -> Option<SaveChoice> {
+    None
+}
+
 fn steps(events: &[LaunchEvent]) -> Vec<Step> {
     events
         .iter()
@@ -171,7 +179,11 @@ fn retroarch_gets_its_core_the_append_config_and_the_rom() {
             "-L".into(),
             RetroArch::core_file(&r.paths, "mgba").display().to_string(),
             "--appendconfig".into(),
-            RetroArch::append_config(&r.paths).display().to_string(),
+            format!(
+                "{}|{}",
+                RetroArch::append_config(&r.paths).display(),
+                RetroArch::game_config(&r.paths, &rom).display()
+            ),
             "-f".into(),
             rom_path.display().to_string(),
         ]
@@ -200,6 +212,13 @@ fn dolphin_runs_batch_full_screen_in_romshelfs_user_folder() {
             "-b".into(),
             "-C".into(),
             "Dolphin.Display.Fullscreen=True".into(),
+            "-C".into(),
+            "Dolphin.Core.SlotA=8".into(),
+            "-C".into(),
+            format!(
+                "Dolphin.Core.GCIFolderAPathOverride={}",
+                Dolphin.save_dir(&rom, &r.paths).display()
+            ),
             "-e".into(),
             rom_path.display().to_string(),
         ]
