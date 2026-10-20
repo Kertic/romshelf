@@ -75,6 +75,16 @@ Status: **built; waiting for the on-Deck checks.**
   - The grip layout from a template, layout keys, and layout-list entries added once and removed cleanly.
 - 7 UI tests: the screen, saving the name, Remove, choosing a file, back to generated, the whole-library setting, and the restart prompt.
 
+### Found on the Deck: lost shortcuts (2026-10-20)
+
+- After the first apply and two Steam restarts, your shortcuts were down to four (Battle.net, Minecraft Launcher, Nexon Launcher, NonSteamLaunchers), and `romshelf.AppImage` was gone.
+- **Cause:**
+  - NonSteamLaunchers' scanner (`~/.config/systemd/user/NSLGameScanner.py`, a user service that restarts constantly) checks whether `shortcuts.vdf` is executable. If it isn't, it writes an empty shortcut list and adds back only its own launchers.
+  - Steam's file is `rwxr-xr-x`. Romshelf's write-then-rename left it `rw-r--r--`, so the scanner's next pass emptied it.
+- **Fix:** rewrites keep the file's permissions, and a new file gets `rwxr-xr-x`. Tested on Linux.
+- **Recovery:** Romshelf's pre-write backups held your shortcuts. At your choice, the 65 from 02:49 were restored (you had deleted "test" and "kirb" yourself), with Steam closed and the 4-shortcut file kept as `shortcuts.vdf.before-restore-1792482942.bak`. The scanner then rewrote the file 11 times in two minutes and kept all 65.
+- **Still a risk:** the scanner rewrites the file about every ten seconds, from the copy it read at the start of its pass, so a pass running across a Romshelf write could undo it. Romshelf re-applies after every sync, which repairs that; the "change while Steam runs" check will show whether it matters.
+
 ### Choices made
 
 - **Romshelf's own `shortcuts.vdf` code** instead of the crate (above).
