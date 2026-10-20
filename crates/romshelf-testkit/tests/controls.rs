@@ -213,3 +213,166 @@ fn scopes_are_stored_as_emulator_and_system() {
     );
     assert_eq!(Scope::from_key("retroarch"), None);
 }
+
+// Built-in defaults and storage
+
+use romshelf_core::controls::{defaults, store};
+use romshelf_core::db::Database;
+use romshelf_core::drive::scaffold;
+use romshelf_core::drive::{DriveClient, ROOT};
+use romshelf_core::emulators::Registry;
+use romshelf_core::model::{LocationState, Rom, RomId};
+use romshelf_testkit::FakeDrive;
+
+#[test]
+fn every_built_in_default_is_complete_and_valid() {
+    for adapter in Registry::default().adapters() {
+        for system in adapter.systems() {
+            let scope = Scope::new(adapter.id(), *system);
+            let d = defaults::built_in(&scope);
+            assert_eq!(d.len(), INPUTS.len(), "{}", scope.key());
+            validate(&scope, &d).unwrap_or_else(|e| panic!("{}: {e}", scope.key()));
+        }
+    }
+    // Hotkeys sit on the back grips.
+    let d = defaults::built_in(&gba());
+    assert_eq!(d["l4"], bound("fast_forward"));
+    assert_eq!(d["l5"], bound("save_state"));
+}
+
+fn rom(db: &Database, n: u8, system: System) -> Rom {
+    let r = Rom {
+        id: RomId(format!("{}-0000000{n}", system.id())),
+        drive_file_id: format!("file{n}"),
+        system,
+        file_name: format!("Game {n}.gba"),
+        display_name: format!("Game {n}"),
+        size: 1,
+        checksum: None,
+        location: LocationState::OnDeck,
+        recognized: true,
+    };
+    db.upsert_rom(&r).unwrap();
+    r
+}
+
+#[test]
+fn a_game_stores_only_its_differences() {
+    let db = Database::open_in_memory().unwrap();
+    let g = rom(&db, 1, System::Gba);
+    assert_eq!(
+        store::effective(&db, &gba(), &g.id).unwrap(),
+        defaults::built_in(&gba())
+    );
+    let swap = from_pairs(&[("a", Some("b")), ("b", Some("a"))]).unwrap();
+    store::set_game(&db, &gba(), &g.id, &swap, 10).unwrap();
+    assert_eq!(store::game_layout(&db, &gba(), &g.id).unwrap(), swap);
+    assert_eq!(
+        store::effective(&db, &gba(), &g.id).unwrap()["a"],
+        bound("b")
+    );
+    store::reset_game(&db, &gba(), &g.id, 11).unwrap();
+    assert!(store::game_layout(&db, &gba(), &g.id).unwrap().is_empty());
+    assert!(store::set_game(
+        &db,
+        &gba(),
+        &g.id,
+        &from_pairs(&[("a", Some("dpad"))]).unwrap(),
+        12
+    )
+    .is_err());
+}
+
+#[test]
+fn promoting_names_the_games_that_will_change() {
+    let db = Database::open_in_memory().unwrap();
+    let this = rom(&db, 1, System::Gba);
+    let follows = rom(&db, 2, System::Gba);
+    let overrides = rom(&db, 3, System::Gba);
+    let _snes = rom(&db, 4, System::Snes);
+    store::set_game(
+        &db,
+        &gba(),
+        &this.id,
+        &from_pairs(&[("a", Some("b"))]).unwrap(),
+        1,
+    )
+    .unwrap();
+    store::set_game(
+        &db,
+        &gba(),
+        &overrides.id,
+        &from_pairs(&[("a", Some("select"))]).unwrap(),
+        1,
+    )
+    .unwrap();
+    let changed: Vec<RomId> = store::promote_impact(&db, &gba(), &this.id)
+        .unwrap()
+        .into_iter()
+        .map(|r| r.id)
+        .collect();
+    assert_eq!(changed, [follows.id.clone()]);
+    let before = store::effective(&db, &gba(), &this.id).unwrap();
+    store::promote(&db, &gba(), &this.id, 2).unwrap();
+    assert!(store::game_layout(&db, &gba(), &this.id)
+        .unwrap()
+        .is_empty());
+    assert_eq!(store::effective(&db, &gba(), &this.id).unwrap(), before);
+    assert_eq!(
+        store::effective(&db, &gba(), &follows.id).unwrap()["a"],
+        bound("b")
+    );
+    assert_eq!(
+        store::effective(&db, &gba(), &overrides.id).unwrap()["a"],
+        bound("select")
+    );
+}
+
+#[test]
+fn layouts_follow_the_user_to_another_deck_through_drive() {
+    let drive = FakeDrive::default();
+    let layout = scaffold::setup(&drive, ROOT, &mut |_: &str| {}).unwrap();
+    let a = Database::open_in_memory().unwrap();
+    let b = Database::open_in_memory().unwrap();
+    let g = rom(&a, 1, System::Gba);
+    rom(&b, 1, System::Gba);
+    let mut new_default = defaults::built_in(&gba());
+    new_default.insert("r4".into(), Binding::Cleared);
+    store::set_default(&a, &gba(), &new_default, 100).unwrap();
+    store::set_game(
+        &a,
+        &gba(),
+        &g.id,
+        &from_pairs(&[("a", Some("b"))]).unwrap(),
+        100,
+    )
+    .unwrap();
+    store::push(&drive, &layout.meta, &a, &gba()).unwrap();
+
+    let updated = store::pull(&drive, &layout.meta, &b).unwrap();
+    assert_eq!(updated, [gba()]);
+    assert_eq!(
+        store::effective(&b, &gba(), &g.id).unwrap(),
+        store::effective(&a, &gba(), &g.id).unwrap()
+    );
+    // Nothing newer: pulling again changes nothing.
+    assert!(store::pull(&drive, &layout.meta, &b).unwrap().is_empty());
+    // A newer local change isn't overwritten by an older Drive copy.
+    store::reset_game(&b, &gba(), &g.id, 200).unwrap();
+    assert!(store::pull(&drive, &layout.meta, &b).unwrap().is_empty());
+    assert!(store::game_layout(&b, &gba(), &g.id).unwrap().is_empty());
+    // It's all in one file under .romshelf/controls/.
+    let folder = drive
+        .list(&layout.meta)
+        .unwrap()
+        .into_iter()
+        .find(|f| f.name == "controls")
+        .unwrap();
+    let names: Vec<String> = drive
+        .list(&folder.id)
+        .unwrap()
+        .into_iter()
+        .map(|f| f.name)
+        .collect();
+    assert_eq!(names, ["retroarch-gba.json"]);
+}
