@@ -103,7 +103,6 @@ Status: **built; waiting for the on-Deck checks.** You chose the back-grip appro
 - [x] Bind fast forward for one game: it works in that game.
 - [x] Change the RetroArch GBA default: Kirby follows, except its overridden buttons.
 - [ ] L4 fast forward works in Kirby (done in the spike) and in Twilight Princess. 2026-10-19: works in Kirby. In Twilight Princess it fast-forwarded only sometimes, but its shortcut ("test") doesn't have Romshelf's Steam Input layout yet, so L4 sent nothing; that wasn't Romshelf's binding. To retest with the layout on that shortcut too.
-
 - [ ] Hold View + Menu for a second in Kirby, and in Twilight Princess: the game closes, back to Steam, and its save is backed up.
 
 Checks 1–4 passed on the Deck, 2026-10-19 (your report).
