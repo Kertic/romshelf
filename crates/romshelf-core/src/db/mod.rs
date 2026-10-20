@@ -85,6 +85,12 @@ CREATE TABLE save_sync (
     last_error          TEXT
 );
 "#,
+    // Stage 8: games the user took out of Steam, so adding every new ROM leaves them out.
+    r#"
+CREATE TABLE steam_hidden (
+    rom_id  TEXT PRIMARY KEY
+);
+"#,
 ];
 
 pub struct Database {
@@ -527,6 +533,57 @@ impl Database {
             ],
         )?;
         Ok(())
+    }
+
+    /// Every shortcut Romshelf keeps, by game.
+    pub fn shortcuts(&self) -> Result<Vec<Shortcut>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT rom_id FROM shortcuts ORDER BY rom_id")?;
+        let ids = stmt
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut out = Vec::new();
+        for id in ids {
+            if let Some(s) = self.shortcut(&RomId(id))? {
+                out.push(s);
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn delete_shortcut(&self, rom_id: &RomId) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM shortcuts WHERE rom_id = ?1", [rom_id.as_str()])?;
+        Ok(())
+    }
+
+    /// Remembers that the user took a game out of Steam (or puts it back).
+    pub fn set_steam_hidden(&self, rom_id: &RomId, hidden: bool) -> Result<()> {
+        if hidden {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO steam_hidden (rom_id) VALUES (?1)",
+                [rom_id.as_str()],
+            )?;
+        } else {
+            self.conn.execute(
+                "DELETE FROM steam_hidden WHERE rom_id = ?1",
+                [rom_id.as_str()],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn steam_hidden(&self, rom_id: &RomId) -> Result<bool> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT 1 FROM steam_hidden WHERE rom_id = ?1",
+                [rom_id.as_str()],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
     }
 
     pub fn shortcut(&self, rom_id: &RomId) -> Result<Option<Shortcut>> {

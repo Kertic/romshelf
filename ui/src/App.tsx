@@ -2,6 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   answerSaveQuestion,
   controlsView,
+  imageFiles,
+  onSteamChanged,
+  saveShortcut,
+  setShortcutArtwork,
+  setSteamAutoAdd,
+  steamRestartNotice,
+  steamShortcut,
   promoteControls,
   promoteCount,
   resetControls,
@@ -39,6 +46,7 @@ import {
   type LibraryEntry,
   type SaveChoice,
   type ControlsView,
+  type ShortcutView,
   type Progress,
   type StorageStatus,
   type SyncStatus,
@@ -50,13 +58,14 @@ import { GamepadSpike } from "./GamepadSpike";
 import { Emulators, type SetupState } from "./Emulators";
 import { LaunchWindow, type LaunchState } from "./LaunchWindow";
 import { Controls, type KeyHandler } from "./Controls";
+import { RestartSteamDialog, SteamShortcut } from "./SteamShortcut";
 import { Home } from "./Home";
 import type { Button } from "./input";
 import { nextTab } from "./library";
 import { RomDialog, type SaveActions } from "./RomActions";
 import { useInput } from "./useInput";
 
-type Screen = "loading" | "first-run" | "home" | "emulators" | "launch" | "controls" | "spike";
+type Screen = "loading" | "first-run" | "home" | "emulators" | "launch" | "controls" | "shortcut" | "spike";
 
 const HOLD_TO_LEAVE_MS = 1000;
 
@@ -90,6 +99,10 @@ export function App() {
   /** The Controls editor: which layout, and where B goes back to. */
   const [controlsFor, setControlsFor] = useState<{ emulatorId: string; system: string; romId: string | null; from: Screen } | null>(null);
   const [controls, setControls] = useState<ControlsView | null>(null);
+  /** The Steam shortcut screen's game and view. */
+  const [shortcut, setShortcut] = useState<ShortcutView | null>(null);
+  /** Shortcut changes waiting for Steam to restart: the prompt. */
+  const [restart, setRestart] = useState<number | null>(null);
   const [controlsError, setControlsError] = useState<string | null>(null);
   /** The editor sees presses first (rebinding, X, Y, L1, R1). */
   const keyHandler = useRef<KeyHandler | null>(null);
@@ -223,6 +236,20 @@ export function App() {
     play(romId).catch((e) =>
       setLaunch({ romId, label: null, percent: null, running: false, error: e?.message ?? `Couldn't start the game: ${String(e)}` }),
     );
+  }, []);
+
+  // New games added to Steam after a sync: the restart prompt.
+  useEffect(() => {
+    let live = true;
+    let unlisten: (() => void) | null = null;
+    onSteamChanged((n) => {
+      setRestart(n);
+      void steamRestartNotice();
+    }).then((un) => (live ? (unlisten = un) : un()));
+    return () => {
+      live = false;
+      unlisten?.();
+    };
   }, []);
 
   // Owed backups that reach Drive in the background.
@@ -436,6 +463,30 @@ export function App() {
     });
     return () => clearTimeout(timer);
   }, [screen, entries, tab, syncHint]);
+  /** Shortcut changes saved on the shortcut screen, for the restart prompt. */
+  const shortcutChanges = useRef(0);
+  const openShortcut = useCallback((romId: string) => {
+    shortcutChanges.current = 0;
+    setDialogRom(null);
+    setShortcut(null);
+    setScreen("shortcut");
+    steamShortcut(romId)
+      .then(setShortcut)
+      .catch((e) => setError(e?.message ?? `Couldn't read the shortcut: ${String(e)}. Try again.`));
+  }, []);
+  const closeShortcut = useCallback(() => {
+    const romId = shortcut?.rom_id;
+    setShortcut(null);
+    setBack(null);
+    setScreen("home");
+    reloadLibrary();
+    if (romId) setDialogRom(romId);
+    // The prompt, once for the batch of changes just made.
+    steamRestartNotice()
+      .then((pending) => pending && setRestart(Math.max(1, shortcutChanges.current)))
+      .catch(() => {});
+  }, [shortcut, setBack, reloadLibrary]);
+
   const closeControls = useCallback(() => {
     const f = controlsFor;
     setControlsFor(null);
@@ -519,6 +570,7 @@ export function App() {
           setup={dialogEntry.emulator_id ? setups[dialogEntry.emulator_id] : undefined}
           saves={dialogSaves ?? undefined}
           onAnswer={answerSave}
+          onSteamShortcut={() => openShortcut(dialogEntry.rom.id)}
           onEditControls={() =>
             dialogEntry.emulator_id && openControls(dialogEntry.emulator_id, dialogEntry.rom.system, dialogEntry.rom.id, "home")
           }
@@ -543,6 +595,32 @@ export function App() {
           }}
         />
       )}
+      {screen === "shortcut" && shortcut && (
+        <SteamShortcut
+          key={shortcut.rom_id}
+          view={shortcut}
+          setBack={setBack}
+          onBack={closeShortcut}
+          onSave={async (shown, name) => {
+            const done = await saveShortcut(shortcut.rom_id, shown, name);
+            shortcutChanges.current += done.added + done.updated + done.removed;
+            setShortcut(await steamShortcut(shortcut.rom_id));
+            return done;
+          }}
+          onAutoAdd={async (on) => {
+            const done = await setSteamAutoAdd(on);
+            shortcutChanges.current += done.added + done.updated + done.removed;
+            setShortcut(await steamShortcut(shortcut.rom_id));
+          }}
+          onArtwork={async (slot, path) => {
+            setShortcut(await setShortcutArtwork(shortcut.rom_id, slot, path));
+            const done = await saveShortcut(shortcut.rom_id, true, shortcut.name);
+            shortcutChanges.current += Math.max(1, done.added + done.updated);
+          }}
+          loadImages={imageFiles}
+        />
+      )}
+      {restart != null && <RestartSteamDialog changes={restart} onClose={() => setRestart(null)} />}
       {screen === "controls" && controlsError && (
         <main className="content">
           <p className="error">{controlsError}</p>

@@ -68,6 +68,8 @@ interface Props {
   onAnswer?: (choice: SaveChoice) => void;
   /** Opens the Controls editor on this game. */
   onEditControls?: () => void;
+  /** Opens the Steam shortcut screen for this game. */
+  onSteamShortcut?: () => void;
   /** Drops this game's differences, back to the emulator's default. */
   onResetControls?: () => Promise<void>;
   /** For tests: what "today" is. */
@@ -125,6 +127,7 @@ export function RomDialog({
   onAnswer,
   onEditControls,
   onResetControls,
+  onSteamShortcut,
   now,
 }: Props) {
   const [view, setView] = useState<View>("main");
@@ -244,6 +247,19 @@ export function RomDialog({
                 <span className="muted small">Comes in a later update</span>
               </div>
             ))}
+          </section>
+        )}
+        {onSteamShortcut && entry.emulator && entry.rom.recognized && (
+          <section className="functions" aria-label="Steam shortcut">
+            <h3 className="group-label">Steam shortcut</h3>
+            <span className={entry.in_steam ? "body-text accent" : "body-text muted"}>
+              {entry.in_steam ? "In your library" : "Not in Steam"}
+            </span>
+            <div className="dialog-actions start">
+              <button className="button outline" data-focusable data-hint="Open" type="button" onClick={onSteamShortcut}>
+                {entry.in_steam ? "Edit shortcut…" : "Add to Steam library…"}
+              </button>
+            </div>
           </section>
         )}
         {onEditControls && entry.emulator_ready && (

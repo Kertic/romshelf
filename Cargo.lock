@@ -3614,6 +3614,7 @@ dependencies = [
 name = "romshelf"
 version = "0.1.2"
 dependencies = [
+ "base64 0.22.1",
  "clap",
  "gilrs",
  "romshelf-core",
@@ -3636,6 +3637,7 @@ dependencies = [
  "keyring",
  "libc",
  "md-5",
+ "png 0.17.16",
  "reqwest 0.12.28",
  "rusqlite",
  "serde",
