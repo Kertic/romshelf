@@ -241,6 +241,7 @@ export function Controls({ view, held, registerKeys, setBack, onBack, onSave, on
               changed for them.
             </p>
           )}
+          <p className="muted small">Hold View and Menu for a second to quit any game, whatever its layout.</p>
           <p className="muted small">
             Steam's controller layout for a shortcut sits above this. If you change a game's layout in Steam, Steam's
             change applies first.

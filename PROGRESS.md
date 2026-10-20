@@ -49,6 +49,11 @@ Status: **built; waiting for the on-Deck checks.** You chose the back-grip appro
     - A fresh `Hotkeys.ini`. Grips are named on the keyboard device (`XInput2/0/Virtual core pointer:F9`).
     - Both are rewritten before each launch.
 - **Pipeline:** the Controls step writes the game's merged layout before every launch.
+- **Quitting, in every game and every state** (you asked for this on 2026-10-19):
+  - Hold View and Menu for a second. Romshelf reads the controller itself while a game runs (from a Steam shortcut or from Play), so it doesn't depend on the emulator, its focus or the game's layout.
+  - It stops the emulator the same clean way as Steam's Exit game (ask, then widen, then force), so the emulator writes its saves, and Romshelf backs them up as usual.
+  - In the launch window (downloading or setting up), the same combination goes back to Steam.
+  - Tested: the hold rule (once per hold, a second, starting over when let go); a requested stop ending a real program (Linux) and a fake one; and a stale request not stopping the next program.
 - **Setup's step two** stores the built-in layout as the default for each of the emulator's systems, unless one is already there.
 - **Interface:**
   - **The Controls editor** (guide 5.4):
@@ -89,7 +94,7 @@ Status: **built; waiting for the on-Deck checks.** You chose the back-grip appro
 ### Deferred
 
 - **Writing Romshelf's Steam Input layout to each shortcut** is stage 8's: that's where shortcuts are written, with Steam closed. The spike shows how.
-- **Quit on a button:** the model maps one input to one target, with no combinations, so quit has no default button. Steam's Exit game covers it. It can still be bound to a free input in the editor.
+- **Quit as a layout binding:** the model maps one input to one target, so quit has no default button in the layout (it can still be bound to a free input in the editor). Romshelf's own View + Menu combination, below, covers every game instead.
 
 ### On-Deck checklist
 

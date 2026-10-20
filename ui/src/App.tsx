@@ -208,7 +208,7 @@ export function App() {
         const base: LaunchState = cur?.romId === u.rom_id ? cur : { romId: u.rom_id, label: null, percent: null, running: true, error: null };
         if (u.kind === "failed") return { ...base, running: false, error: u.message ?? "The game couldn't start. Try again." };
         if (u.kind === "question") return { ...base, conflict: u.conflict };
-        if (u.kind === "step") return { ...base, label: u.label, percent: null, running: true, error: null };
+        if (u.kind === "step") return { ...base, step: u.step, label: u.label, percent: null, running: true, error: null };
         return { ...base, percent: u.percent };
       });
     }).then((un) => (live ? (unlisten = un) : un()));
@@ -392,6 +392,15 @@ export function App() {
   const input = useInput(onPress);
 
   // On the gamepad test every button is under test, so leaving needs B held for one second.
+  // View + Menu held for a second leaves the launch window for Steam while it downloads or sets
+  // up (during the game itself, Romshelf's own watcher stops the emulator).
+  const holdingQuit =
+    screen === "launch" && launch?.step !== "run" && input.held.includes("view") && input.held.includes("menu");
+  useEffect(() => {
+    if (!holdingQuit) return;
+    const t = setTimeout(() => backRef.current?.run(), HOLD_TO_LEAVE_MS);
+    return () => clearTimeout(t);
+  }, [holdingQuit]);
   const holdingB = screen === "spike" && input.held.includes("b");
   useEffect(() => {
     if (!holdingB) return;

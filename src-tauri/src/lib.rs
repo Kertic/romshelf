@@ -927,6 +927,8 @@ fn launch_command(target: Target) -> i32 {
             Ok(n) => n,
             Err(e) => return failed(e),
         };
+    // View + Menu held for a second quits the game, in any emulator.
+    gamepad::watch_quit(state.process.clone());
     if !needs_window {
         let result = with_launch_ctx(&state, &no_answer, |ctx| {
             launch::run(ctx, &target, &mut |_| {})
@@ -1003,6 +1005,9 @@ fn run_interface(state: AppState, launch: Option<String>) -> i32 {
         }
     }
     let launching = launch.is_some();
+    // A launch from Steam already watches for View + Menu (see `launch_command`); the full
+    // interface watches for games started with Play.
+    let launch_quit = !launching;
     if let Ok(mut t) = state.launch_target.lock() {
         *t = launch;
     }
@@ -1055,6 +1060,9 @@ fn run_interface(state: AppState, launch: Option<String>) -> i32 {
                 .focused(true)
                 .build()?;
             gamepad::start(app.handle().clone());
+            if launch_quit {
+                gamepad::watch_quit(app.state::<AppState>().process.clone());
+            }
             // A launch window is only there to start one game.
             if !launching {
                 start_update_check(app.handle().clone());

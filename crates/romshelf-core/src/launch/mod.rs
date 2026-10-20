@@ -468,3 +468,61 @@ fn log_launch(
             .and_then(|mut f| f.write_all(line.as_bytes()))
     });
 }
+
+/// How long View and Menu are held together to quit a game.
+pub const QUIT_HOLD: Duration = Duration::from_secs(1);
+
+/// Romshelf's own quit combination: View and Menu held together for `QUIT_HOLD`. It works the
+/// same in every emulator and every state, whatever the game's layout, because Romshelf reads
+/// the controller itself and stops the emulator cleanly (saves are written first).
+#[derive(Debug, Default)]
+pub struct QuitCombo {
+    since: Option<Instant>,
+    fired: bool,
+}
+
+impl QuitCombo {
+    /// Feeds whether both buttons are held now; true once per hold, when it reaches a second.
+    pub fn update(&mut self, held: bool, now: Instant) -> bool {
+        if !held {
+            self.since = None;
+            self.fired = false;
+            return false;
+        }
+        let since = *self.since.get_or_insert(now);
+        if !self.fired && now.duration_since(since) >= QUIT_HOLD {
+            self.fired = true;
+            return true;
+        }
+        false
+    }
+}
+
+#[cfg(test)]
+mod quit_tests {
+    use super::*;
+
+    #[test]
+    fn quits_once_after_a_second_held() {
+        let t0 = Instant::now();
+        let mut q = QuitCombo::default();
+        assert!(!q.update(true, t0));
+        assert!(!q.update(true, t0 + Duration::from_millis(900)));
+        assert!(q.update(true, t0 + QUIT_HOLD));
+        assert!(
+            !q.update(true, t0 + Duration::from_secs(3)),
+            "once per hold"
+        );
+    }
+
+    #[test]
+    fn letting_go_starts_again() {
+        let t0 = Instant::now();
+        let mut q = QuitCombo::default();
+        q.update(true, t0);
+        assert!(!q.update(false, t0 + Duration::from_millis(800)));
+        assert!(!q.update(true, t0 + Duration::from_millis(900)));
+        assert!(!q.update(true, t0 + Duration::from_millis(1800)));
+        assert!(q.update(true, t0 + Duration::from_millis(1900)));
+    }
+}

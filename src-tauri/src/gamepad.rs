@@ -127,3 +127,30 @@ pub fn start(app: AppHandle) {
         }
     });
 }
+
+/// Romshelf's quit combination while a game runs: View and Menu held for a second ask the
+/// running emulator to close, cleanly, so it saves first. Romshelf reads the pad itself, so it
+/// works in every emulator and every state, whichever program has focus and whatever the
+/// game's layout.
+pub fn watch_quit(process: std::sync::Arc<dyn romshelf_core::process::ProcessRunner>) {
+    std::thread::spawn(move || {
+        let mut gilrs = match Gilrs::new() {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("Couldn't watch the controller for View + Menu: {e}");
+                return;
+            }
+        };
+        let mut combo = romshelf_core::launch::QuitCombo::default();
+        loop {
+            while gilrs.next_event().is_some() {}
+            let held = gilrs
+                .gamepads()
+                .any(|(_, p)| p.is_pressed(Button::Select) && p.is_pressed(Button::Start));
+            if combo.update(held, std::time::Instant::now()) {
+                process.request_stop();
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    });
+}
