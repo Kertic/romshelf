@@ -104,7 +104,11 @@ Status: **built; waiting for the on-Deck checks.** You chose the back-grip appro
 - [x] Change the RetroArch GBA default: Kirby follows, except its overridden buttons.
 - [ ] L4 fast forward works in Kirby (done in the spike) and in Twilight Princess. 2026-10-19: works in Kirby. In Twilight Princess it fast-forwarded only sometimes, but its shortcut ("test") doesn't have Romshelf's Steam Input layout yet, so L4 sent nothing; that wasn't Romshelf's binding. To retest with the layout on that shortcut too.
 
+- [ ] Hold View + Menu for a second in Kirby, and in Twilight Princess: the game closes, back to Steam, and its save is backed up.
+
 Checks 1–4 passed on the Deck, 2026-10-19 (your report).
+
+Twilight Princess saves, checked 2026-10-19 after you reported them missing: Dolphin wrote `01-GZ2E-gczelda2.gci` into the game's own folder at 23:53 after an in-game save, and it reached Drive at 23:54. So the per-game memory card works. Earlier sessions had no new save on disk because none was made in game. That means stage 6's check 2 backed up the save moved there at 18:24, not a new one.
 
 ## Stage 6: saves and save states (branch `stage-06-saves`, on top of stage 5)
 
