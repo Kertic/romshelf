@@ -56,7 +56,7 @@ Status: **built overnight while you were away; waiting for the on-Deck checks.**
 - [ ] Update to a newer build: existing Steam shortcuts still launch.
 - [ ] Airplane mode: launch a downloaded game from Steam, play, quit; the backup uploads when the network returns.
 - [ ] Remove the SD card holding the ROMs: the app explains what's wrong and recovers when it's reinserted.
-- [ ] `romshelf doctor` reports all green on a healthy install.
+- [x] `romshelf doctor` reports all green on a healthy install. (2026-10-20: all 10 checks ok on the Deck, exit 0.)
 
 ## Stage 9: interface completion (branch `stage-09-interface`, on top of stage 8)
 
