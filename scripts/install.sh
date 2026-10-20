@@ -39,7 +39,9 @@ curl -fsSL "$manifest_url" -o "$tmp/manifest.json" || fail "the release's checks
 # it updates itself).
 want=$(grep -o '"sha256": *"[0-9a-f]*"' "$tmp/manifest.json" | sed 's/.*"\([0-9a-f]*\)"$/\1/')
 have=$(sha256sum "$tmp/romshelf.AppImage" | cut -d' ' -f1)
-[ -n "$want" ] && [ "$want" = "$have" ] || fail "the download doesn't match the release's checksum. Nothing was changed."
+if [ -z "$want" ] || [ "$want" != "$have" ]; then
+  fail "the download doesn't match the release's checksum. Nothing was changed."
+fi
 
 mkdir -p "$APPS" "$HOME/.local/bin" "$HOME/.local/share/applications"
 chmod +x "$tmp/romshelf.AppImage"
