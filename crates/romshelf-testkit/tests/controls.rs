@@ -471,3 +471,82 @@ fn retroarch_buttons_match_the_steam_virtual_gamepad() {
     assert!(cfg.contains("input_fps_toggle_btn = \"nul\"\n"));
     assert!(cfg.contains("input_autodetect_enable = \"false\"\n"));
 }
+
+// Dolphin
+
+use romshelf_core::controls::dolphin;
+
+fn gc() -> Scope {
+    Scope::new("dolphin", System::Gamecube)
+}
+
+fn dolphin_fixture(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures/dolphin")
+        .join(name)
+}
+
+fn dolphin_golden(name: &str, actual: &str) {
+    let path = dolphin_fixture(name);
+    if std::env::var("ROMSHELF_BLESS").as_deref() == Ok("1") {
+        std::fs::write(&path, actual).unwrap();
+    }
+    let expected = std::fs::read_to_string(&path)
+        .unwrap()
+        .replace("\r\n", "\n");
+    assert_eq!(actual, expected, "{name} differs");
+}
+
+#[test]
+fn dolphin_default_matches_what_dolphin_wrote_for_the_deck() {
+    // The settings Dolphin itself saved on the Deck (EmuDeck's layout).
+    let theirs = std::fs::read_to_string(dolphin_fixture("GCPadNew.ini")).unwrap();
+    let ours = dolphin::gcpad(&defaults::built_in(&gc()));
+    for key in [
+        "Device",
+        "Buttons/A",
+        "Buttons/B",
+        "Buttons/X",
+        "Buttons/Y",
+        "Buttons/Start",
+        "Main Stick/Up",
+        "Main Stick/Right",
+        "C-Stick/Up",
+        "C-Stick/Left",
+        "Triggers/L",
+        "Triggers/R-Analog",
+        "D-Pad/Up",
+        "D-Pad/Right",
+        "Main Stick/Calibration",
+    ] {
+        let find = |text: &str| {
+            text.lines()
+                .skip_while(|l| *l != "[GCPad1]")
+                .find(|l| l.starts_with(&format!("{key} = ")))
+                .map(|l| l.replace('`', ""))
+        };
+        assert_eq!(find(&ours), find(&theirs), "{key}");
+    }
+}
+
+#[test]
+fn dolphin_golden_default_and_hotkeys() {
+    let d = defaults::built_in(&gc());
+    dolphin_golden("gc-default-pad.ini", &dolphin::gcpad(&d));
+    dolphin_golden("gc-default-hotkeys.ini", &dolphin::hotkeys(&d));
+}
+
+#[test]
+fn dolphin_grips_are_keyboard_keys_and_other_pads_are_kept() {
+    let game = from_pairs(&[("l4", Some("a")), ("r4", Some("quit"))]).unwrap();
+    let layout = merge(&defaults::built_in(&gc()), &game);
+    let existing = std::fs::read_to_string(dolphin_fixture("GCPadNew.ini")).unwrap();
+    let file = dolphin::gcpad_file(&existing, &layout);
+    assert!(file.contains("Buttons/A = `Button S`|`XInput2/0/Virtual core pointer:F9`\n"));
+    assert_eq!(file.matches("[GCPad1]").count(), 1);
+    assert!(file.contains("[GCPad2]\nDevice = SDL/1/Steam Virtual Gamepad\n"));
+    let hotkeys = dolphin::hotkeys(&layout);
+    assert!(hotkeys.contains("General/Exit = `XInput2/0/Virtual core pointer:F10`\n"));
+    assert!(hotkeys
+        .contains("Save State/Save to Selected Slot = `XInput2/0/Virtual core pointer:F11`\n"));
+}

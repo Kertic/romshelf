@@ -41,13 +41,14 @@ pub fn built_in(scope: &Scope) -> Layout {
             ("r1", "r"),
             ("menu", "start"),
         ],
+        // By position, as on the GameCube pad (and EmuDeck's layout): B to the left, X to the right.
         System::Gamecube => &[
             ("dpad", "dpad"),
             ("left_stick", "stick"),
             ("right_stick", "c_stick"),
             ("a", "a"),
-            ("b", "b"),
-            ("x", "x"),
+            ("x", "b"),
+            ("b", "x"),
             ("y", "y"),
             ("r1", "z"),
             ("l2", "l"),

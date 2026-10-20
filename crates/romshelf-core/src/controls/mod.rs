@@ -4,6 +4,7 @@
 //! At launch the two are merged and written into the emulator's Romshelf-owned configuration.
 
 pub mod defaults;
+pub mod dolphin;
 pub mod merge;
 pub mod model;
 pub mod retroarch;
