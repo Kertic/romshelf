@@ -550,3 +550,79 @@ fn dolphin_grips_are_keyboard_keys_and_other_pads_are_kept() {
     assert!(hotkeys
         .contains("Save State/Save to Selected Slot = `XInput2/0/Virtual core pointer:F11`\n"));
 }
+
+// Setup and launch
+
+use romshelf_core::emulators::setup;
+use romshelf_core::emulators::{Dolphin, EmulatorAdapter};
+use romshelf_core::paths::Paths;
+use romshelf_testkit::{FakeHttp, FakePackageRunner};
+
+#[test]
+fn setup_stores_the_built_in_default_for_each_system_and_keeps_an_existing_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::under(dir.path());
+    let db = Database::open_in_memory().unwrap();
+    let snes = Scope::new("retroarch", System::Snes);
+    let mut mine = defaults::built_in(&snes);
+    mine.insert("l4".into(), Binding::Cleared);
+    store::set_default(&db, &snes, &mine, 5).unwrap();
+    let runner = FakePackageRunner::simulating(&["org.libretro.RetroArch"]);
+    let http = FakeHttp::default();
+    for core in romshelf_core::emulators::RetroArch.required_cores() {
+        let f = romshelf_core::emulators::RetroArch::core_file(&paths, core);
+        std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+        std::fs::write(f, b"\x7fELF core").unwrap();
+    }
+    let ctx = setup::SetupContext {
+        runner: &runner,
+        http: &http,
+        db: &db,
+        paths: &paths,
+        drive: None,
+    };
+    setup::run_setup(&ctx, &romshelf_core::emulators::RetroArch, &mut |_| {}).unwrap();
+    for system in [System::Gba, System::N64] {
+        let scope = Scope::new("retroarch", system);
+        assert!(db.control_profile(&scope.key(), None).unwrap().is_some());
+        assert_eq!(
+            store::default_layout(&db, &scope).unwrap(),
+            defaults::built_in(&scope)
+        );
+    }
+    assert_eq!(
+        store::default_layout(&db, &snes).unwrap(),
+        mine,
+        "an existing default is kept"
+    );
+}
+
+#[test]
+fn dolphin_writes_pad_one_and_hotkeys_into_its_own_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::under(dir.path());
+    let config = Dolphin::config_dir(&paths);
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::copy(dolphin_fixture("GCPadNew.ini"), config.join("GCPadNew.ini")).unwrap();
+    let r = Rom {
+        id: RomId("gamecube-2260f1ec".into()),
+        drive_file_id: "f".into(),
+        system: System::Gamecube,
+        file_name: "tp.rvz".into(),
+        display_name: "Twilight Princess".into(),
+        size: 1,
+        checksum: None,
+        location: LocationState::OnDeck,
+        recognized: true,
+    };
+    Dolphin
+        .write_controls(&defaults::built_in(&gc()), &r, &paths)
+        .unwrap();
+    let pads = std::fs::read_to_string(config.join("GCPadNew.ini")).unwrap();
+    assert!(pads.starts_with("[GCPad1]\nDevice = SDL/0/Steam Virtual Gamepad\n"));
+    assert!(pads.contains("[GCPad2]"));
+    let hotkeys = std::fs::read_to_string(config.join("Hotkeys.ini")).unwrap();
+    assert!(hotkeys.contains(
+        "Emulation Speed/Disable Emulation Speed Limit = `XInput2/0/Virtual core pointer:F9`"
+    ));
+}

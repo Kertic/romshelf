@@ -2,6 +2,7 @@
 
 mod auth_cli;
 pub mod cli;
+mod controls_cmd;
 mod emulators_cli;
 mod gamepad;
 mod library_cli;
@@ -431,6 +432,7 @@ fn run_sync(app: &tauri::AppHandle) -> SyncStatus {
     };
     if status.state == "synced" {
         saves_cmd::flush_in_background(app);
+        controls_cmd::pull_in_background(app);
     }
     set_sync_status(app, status.clone());
     status
@@ -1038,6 +1040,11 @@ fn run_interface(state: AppState, launch: Option<String>) -> i32 {
             saves_cmd::restore_save,
             saves_cmd::save_states,
             saves_cmd::delete_save_state,
+            controls_cmd::controls_view,
+            controls_cmd::save_controls,
+            controls_cmd::reset_controls,
+            controls_cmd::promote_count,
+            controls_cmd::promote_controls,
             quit
         ])
         .setup(move |app| {

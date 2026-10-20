@@ -96,8 +96,18 @@ pub fn reset_game(db: &Database, scope: &Scope, rom: &RomId, now: i64) -> Result
 
 /// The other games of the scope's system whose layout "Make this the default" would change.
 pub fn promote_impact(db: &Database, scope: &Scope, rom: &RomId) -> Result<Vec<Rom>> {
+    promote_impact_of(db, scope, rom, &game_layout(db, scope, rom)?)
+}
+
+/// As `promote_impact`, for differences not saved yet (the editor's).
+pub fn promote_impact_of(
+    db: &Database,
+    scope: &Scope,
+    rom: &RomId,
+    diff: &Layout,
+) -> Result<Vec<Rom>> {
     let old = default_layout(db, scope)?;
-    let (new, _) = promote_layouts(&old, &game_layout(db, scope, rom)?);
+    let (new, _) = promote_layouts(&old, diff);
     let mut out = Vec::new();
     for other in db.roms()? {
         if other.system != scope.system || other.id == *rom || other.location == LocationState::Gone
