@@ -24,6 +24,12 @@ pub const AUTO_ADD_SETTING: &str = "steam.auto_add";
 pub const USER_SETTING: &str = "steam.user";
 /// Changes Steam hasn't picked up yet (it reads its files when it starts).
 pub const RESTART_SETTING: &str = "steam.restart_pending";
+/// Romshelf itself is in Steam (set by the installer, `romshelf steam add-self`).
+pub const SELF_SETTING: &str = "steam.self";
+/// The app ID of Romshelf's own shortcut.
+pub fn self_app_id() -> u32 {
+    shortcuts::app_id_for("romshelf-app")
+}
 
 pub struct SteamContext<'a> {
     pub db: &'a Database,
@@ -264,8 +270,21 @@ pub fn apply(ctx: &SteamContext) -> Result<Applied> {
         });
     }
 
+    // Romshelf itself, opening its interface (no launch options).
+    if ctx.db.setting(SELF_SETTING)?.as_deref() == Some("1") {
+        desired.push(Desired {
+            app_id: self_app_id(),
+            name: "Romshelf".into(),
+            exe: exe.clone(),
+            start_dir: start_dir.clone(),
+            launch_options: String::new(),
+            icon: String::new(),
+        });
+    }
+
     // Every ID Romshelf could have used, so its old entries are recognized.
     let mut ours: Vec<u32> = roms.keys().map(|id| shortcuts::app_id_for(id)).collect();
+    ours.push(self_app_id());
     ours.extend(rows.iter().map(|(s, _)| s.app_id));
 
     let existing = ctx.files.read_shortcuts(&user)?;

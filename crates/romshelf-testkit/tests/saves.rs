@@ -1045,3 +1045,51 @@ fn a_save_under_both_names_is_left_alone() {
     );
     assert_eq!(d.read_save(&rom, "Kirby.srm"), b"old progress");
 }
+
+// Stage 10: a restore cut short by a crash
+
+#[test]
+fn a_restore_cut_short_is_repaired_at_the_next_start() {
+    let d = Device::alone();
+    let rom = d.ready(System::Gba, "Kirby.gba");
+    let dir = d.save_dir(&rom);
+    let aside = dir.with_file_name(format!("{}.replaced", rom.id));
+    let incoming = dir.with_file_name(format!("{}.restoring", rom.id));
+
+    // Ended after moving the save aside, before the restored one went in.
+    d.write_save(&rom, "Kirby.srm", b"the real save");
+    std::fs::rename(&dir, &aside).unwrap();
+    std::fs::create_dir_all(&incoming).unwrap();
+    std::fs::write(incoming.join("Kirby.srm"), b"half a download").unwrap();
+    let fixed = saves::recover_interrupted(&d.db.lock().unwrap(), &d.registry, &d.paths).unwrap();
+    assert_eq!(fixed, 2);
+    assert_eq!(d.read_save(&rom, "Kirby.srm"), b"the real save");
+    assert!(!aside.exists() && !incoming.exists());
+
+    // Ended after the restored save went in, before the old one was cleared.
+    std::fs::create_dir_all(&aside).unwrap();
+    std::fs::write(aside.join("Kirby.srm"), b"old").unwrap();
+    saves::recover_interrupted(&d.db.lock().unwrap(), &d.registry, &d.paths).unwrap();
+    assert_eq!(d.read_save(&rom, "Kirby.srm"), b"the real save");
+    assert!(!aside.exists());
+
+    // Nothing to do: nothing changes.
+    assert_eq!(
+        saves::recover_interrupted(&d.db.lock().unwrap(), &d.registry, &d.paths).unwrap(),
+        0
+    );
+}
+
+#[test]
+fn offline_a_downloaded_game_launches_with_no_network_at_any_step() {
+    let d = Device::alone();
+    let rom = d.ready(System::Gba, "Kirby.gba");
+    d.drive.set_offline(true);
+    let (code, _) = d.play(&rom, "Kirby.srm", b"played offline");
+    assert_eq!(code.unwrap(), 0);
+    assert_eq!(d.process.runs().len(), 1, "the emulator ran");
+    assert!(
+        d.db.lock().unwrap().save_sync(&rom.id).unwrap().pending,
+        "the backup is queued"
+    );
+}

@@ -10,6 +10,10 @@ pub fn run(cmd: SteamCommand, ctx: &SteamContext, out: &mut dyn Write) -> i32 {
     let result = match cmd {
         SteamCommand::List => list(ctx, out),
         SteamCommand::Apply => apply_now(ctx, out),
+        SteamCommand::AddSelf => ctx
+            .db
+            .set_setting(apply::SELF_SETTING, "1")
+            .and_then(|_| apply_now(ctx, out)),
     };
     match result {
         Ok(()) => 0,

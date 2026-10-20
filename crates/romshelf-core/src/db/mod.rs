@@ -98,11 +98,40 @@ pub struct Database {
 }
 
 impl Database {
+    /// Opens the index, migrating it forward. Before a migration, the file is copied to
+    /// `<file>.v<old version>.bak`, so a failed upgrade loses nothing.
     pub fn open(path: &Path) -> Result<Database> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
+        if path.exists() {
+            let current: u32 =
+                Connection::open(path)?.pragma_query_value(None, "user_version", |r| r.get(0))?;
+            if current > 0 && current < Database::latest_version() {
+                let backup = path.with_file_name(format!(
+                    "{}.v{current}.bak",
+                    path.file_name()
+                        .map(|n| n.to_string_lossy())
+                        .unwrap_or_default()
+                ));
+                std::fs::copy(path, backup)?;
+            }
+        }
         Database::init(Connection::open(path)?)
+    }
+
+    /// A database at an earlier schema version, as an older Romshelf left it. For migration
+    /// tests.
+    #[doc(hidden)]
+    pub fn create_at_version(path: &Path, version: u32) -> Result<()> {
+        let mut conn = Connection::open(path)?;
+        for (i, sql) in MIGRATIONS.iter().enumerate().take(version as usize) {
+            let tx = conn.transaction()?;
+            tx.execute_batch(sql)?;
+            tx.pragma_update(None, "user_version", (i + 1) as u32)?;
+            tx.commit()?;
+        }
+        Ok(())
     }
 
     pub fn open_in_memory() -> Result<Database> {

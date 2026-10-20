@@ -160,57 +160,25 @@ pub(crate) fn check_for_updates(app: tauri::AppHandle) {
     super::start_update_check(app);
 }
 
-/// "Copy diagnostics": what someone helping would need, with no tokens or secrets.
+/// "Copy diagnostics": versions, checks and recent launches, with tokens, secrets and ROM names
+/// taken out.
 #[tauri::command]
 pub(crate) fn diagnostics(state: tauri::State<'_, AppState>) -> Result<String, UiError> {
-    let mut out = format!(
-        "Romshelf {}\nData: {}\nStorage: {} ({})\n",
+    let doctor = super::doctor_checks(&state)
+        .map(|c| romshelf_core::doctor::report(&c))
+        .unwrap_or_else(|e| {
+            format!(
+                "couldn't run the checks: {e}
+"
+            )
+        });
+    let db = state.db.lock().map_err(internal)?;
+    Ok(romshelf_core::diagnostics::bundle(
+        &db,
+        &state.paths,
         env!("CARGO_PKG_VERSION"),
-        state.paths.data_dir.display(),
-        state.paths.storage_root().display(),
-        if storage::is_available(&state.paths) {
-            "available"
-        } else {
-            "unavailable"
-        }
-    );
-    let local = state.connection.settings()?;
-    out.push_str(&format!(
-        "Signed in: {}\nDrive folder: {}\n",
-        if local.account.is_some() { "yes" } else { "no" },
-        local
-            .drive
-            .as_ref()
-            .map(|d| d.display_path())
-            .unwrap_or_else(|| "not chosen".into())
-    ));
-    {
-        let db = state.db.lock().map_err(internal)?;
-        let roms = db.roms()?;
-        out.push_str(&format!(
-            "Games: {} ({} on this Deck)\nSteam shortcuts: {}\n",
-            roms.len(),
-            roms.iter()
-                .filter(|r| r.location == romshelf_core::model::LocationState::OnDeck)
-                .count(),
-            db.shortcuts()?.len()
-        ));
-        for a in state.registry.adapters() {
-            let ready = db.emulator(a.id())?.is_some_and(|e| e.installed);
-            out.push_str(&format!(
-                "{}: {}\n",
-                a.name(),
-                if ready { "installed" } else { "not installed" }
-            ));
-        }
-    }
-    let log = std::fs::read_to_string(state.paths.log_dir().join("launch.log")).unwrap_or_default();
-    let tail: Vec<&str> = log.lines().rev().take(20).collect();
-    out.push_str("Last launches:\n");
-    for line in tail.into_iter().rev() {
-        out.push_str(&format!("  {line}\n"));
-    }
-    Ok(out)
+        &doctor,
+    ))
 }
 
 #[derive(Serialize)]
