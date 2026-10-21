@@ -165,6 +165,8 @@ describe("self-test", () => {
     render(<OfflineStep entry={GAME} onDone={done} />);
     await settle();
     expect(screen.getByText(/Turn on airplane mode/)).toBeTruthy();
+    // It shows that it's looking, and what it saw.
+    expect(screen.getByText(/Google still answers \(checked \d/)).toBeTruthy();
     mock.probe.online = false;
     await settle();
     fireEvent.click(button("Play Kirby"));

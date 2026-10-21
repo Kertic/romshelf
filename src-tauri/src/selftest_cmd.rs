@@ -162,12 +162,25 @@ pub(crate) struct Probe {
     launches: usize,
 }
 
+/// Whether `host:port` takes a connection within `timeout`: one try, no retries, so the
+/// airplane-mode step sees the network go within seconds. (Asking Drive itself retries for
+/// fifteen seconds or more, which left that step looking stuck on the Deck, 2026-10-21.)
+pub(crate) fn reachable(host: &str, port: u16, timeout: std::time::Duration) -> bool {
+    use std::net::ToSocketAddrs;
+    let Ok(addrs) = (host, port).to_socket_addrs() else {
+        return false;
+    };
+    addrs
+        .take(3)
+        .any(|a| std::net::TcpStream::connect_timeout(&a, timeout).is_ok())
+}
+
 /// What the guided steps watch for: the network, owed backups, the SD card, new launches.
 #[tauri::command]
 pub(crate) async fn selftest_probe(app: tauri::AppHandle) -> Result<Probe, UiError> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let online = state.connection.drive.about().is_ok();
+        let online = reachable("www.googleapis.com", 443, std::time::Duration::from_secs(3));
         let pending_backups = state.db.lock().map_err(internal)?.pending_saves()?.len();
         let root = state.paths.storage_root();
         let launches = std::fs::read_to_string(state.paths.log_dir().join("launch.log"))
@@ -207,6 +220,19 @@ pub(crate) fn selftest_save(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reachable_answers_quickly_either_way() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let quick = std::time::Duration::from_secs(1);
+        assert!(reachable("127.0.0.1", port, quick));
+        drop(listener);
+        let start = std::time::Instant::now();
+        assert!(!reachable("127.0.0.1", port, quick));
+        assert!(!reachable("no-such-host.invalid", 443, quick));
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
+    }
 
     #[test]
     fn the_report_is_saved_as_latest_and_by_time() {

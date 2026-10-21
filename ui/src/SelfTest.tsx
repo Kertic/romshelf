@@ -270,6 +270,10 @@ type OfflineStage = "on" | "play" | "playing" | "off" | "uploading";
 
 export function OfflineStep({ entry, onDone }: { entry: LibraryEntry | undefined; onDone: Done }) {
   const [stage, setStage] = useState<OfflineStage>("on");
+  /** What the last look at the network saw, and when, so it's clear the step is watching. */
+  const [seen, setSeen] = useState<string | null>(null);
+  const saw = (online: boolean) =>
+    setSeen(`${online ? "Google still answers" : "No network"} (checked ${new Date().toLocaleTimeString()})`);
   const notes = useRef<string[]>([]);
   const game = usePlay(entry);
   const deadline = useRef(0);
@@ -282,6 +286,7 @@ export function OfflineStep({ entry, onDone }: { entry: LibraryEntry | undefined
   usePoll(
     async () => {
       const p = await selftestProbe();
+      saw(p.online);
       if (p.online) return false;
       note("Romshelf saw the network go.");
       const lib = await library().catch(() => null);
@@ -304,6 +309,7 @@ export function OfflineStep({ entry, onDone }: { entry: LibraryEntry | undefined
   usePoll(
     async () => {
       const p = await selftestProbe();
+      saw(p.online);
       if (!p.online) return false;
       note("The network came back.");
       if (p.pending_backups === 0) {
@@ -343,6 +349,7 @@ export function OfflineStep({ entry, onDone }: { entry: LibraryEntry | undefined
           Turn on airplane mode: press the <span className="mono">…</span> button, then the airplane in Quick Settings. This waits until the
           network is gone.
         </p>
+        {seen && <p className="muted">{seen}</p>}
         <div className="actions">{skip}</div>
       </>
     );
@@ -373,6 +380,7 @@ export function OfflineStep({ entry, onDone }: { entry: LibraryEntry | undefined
     return (
       <>
         <p className="body-text">Now turn airplane mode off. This waits until Google answers again.</p>
+        {seen && <p className="muted">{seen}</p>}
         <div className="actions">{skip}</div>
       </>
     );
