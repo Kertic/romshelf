@@ -57,6 +57,13 @@ describe("reference screens", () => {
 
   const shot = async (name) => {
     await new Promise((r) => setTimeout(r, 400));
+    // Fake mode's root is a new temp folder each run (the shortcut's target shows it).
+    await s.app.js(
+      `const temp = new RegExp(arguments[0], "g");
+      const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      for (let n = walk.nextNode(); n; n = walk.nextNode()) n.nodeValue = n.nodeValue.replace(temp, "/tmp/romshelf-e2e");`,
+      String.raw`\S*[\\/]\.tmp[A-Za-z0-9]+(?=[\\/])`,
+    );
     compare(name, await s.app.screenshot(name));
   };
 
