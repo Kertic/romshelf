@@ -51,10 +51,20 @@ fn list(ctx: &SteamContext, out: &mut dyn Write) -> romshelf_core::Result<()> {
             row.rom_id, row.app_id, row.name
         )?;
     }
+    let keep_self = ctx.db.setting(apply::SELF_SETTING)?.as_deref() == Some("1");
     for f in in_file
         .iter()
         .filter(|f| !rows.iter().any(|r| r.app_id == f.app_id))
     {
+        // `romshelf steam add-self` asked for this one: apply keeps it.
+        if keep_self && f.app_id == apply::self_app_id() {
+            writeln!(
+                out,
+                "romshelf  {}  {}  (in Steam; opens Romshelf)",
+                f.app_id, f.name
+            )?;
+            continue;
+        }
         writeln!(
             out,
             "-  {}  {}  (in Steam; removed at the next apply)",
@@ -79,4 +89,41 @@ fn apply_now(ctx: &SteamContext, out: &mut dyn Write) -> romshelf_core::Result<(
         done.added, done.updated, done.removed, done.artwork
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use romshelf_core::db::Database;
+    use romshelf_core::paths::Paths;
+    use romshelf_testkit::FakeSteam;
+
+    #[test]
+    fn romshelfs_own_shortcut_is_listed_as_kept() {
+        let seed = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(seed.path().join("userdata/85959576/config")).unwrap();
+        let steam = FakeSteam::new(Some(seed.path())).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::under(dir.path());
+        let db = Database::open_in_memory().unwrap();
+        let ctx = SteamContext {
+            db: &db,
+            files: &steam.files,
+            paths: &paths,
+            now: 1,
+        };
+        let mut out = Vec::new();
+        assert_eq!(run(SteamCommand::AddSelf, &ctx, &mut out), 0);
+        let mut out = Vec::new();
+        assert_eq!(run(SteamCommand::List, &ctx, &mut out), 0);
+        let text = String::from_utf8(out).unwrap();
+        assert!(
+            text.contains(&format!(
+                "romshelf  {}  Romshelf  (in Steam; opens Romshelf)",
+                apply::self_app_id()
+            )),
+            "{text}"
+        );
+        assert!(!text.contains("removed at the next apply"), "{text}");
+    }
 }
