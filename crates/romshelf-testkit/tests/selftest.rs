@@ -317,6 +317,8 @@ fn recent_launches_are_summarised_and_a_failure_is_named() {
     assert_eq!(c.outcome, Outcome::Warn, "{c:?}");
     assert!(c.detail.contains("2 launches"), "{c:?}");
     assert!(c.detail.contains("Kirby ended with exit 1"), "{c:?}");
+    // When, so an old failure isn't mistaken for a new one.
+    assert!(c.detail.contains("(2025-10-09 09:01 UTC)"), "{c:?}");
 }
 
 #[test]

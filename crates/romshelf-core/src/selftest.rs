@@ -732,16 +732,16 @@ pub fn launches(db: &Database, paths: &Paths) -> Check {
     const N: &str = "Recent launches";
     let text = std::fs::read_to_string(paths.log_dir().join("launch.log")).unwrap_or_default();
     let mut count = 0;
-    let mut last_failure: Option<(String, String, Vec<String>)> = None;
+    let mut last_failure: Option<(String, String, String, Vec<String>)> = None;
     for line in text.lines() {
         if let Some(rest) = line.strip_prefix("    ") {
-            if let Some((_, _, out)) = last_failure.as_mut() {
+            if let Some((_, _, _, out)) = last_failure.as_mut() {
                 out.push(rest.to_string());
             }
             continue;
         }
         let parts: Vec<&str> = line.split_whitespace().collect();
-        let [_, id, _, _, "exit", code] = parts.as_slice() else {
+        let [when, id, _, _, "exit", code] = parts.as_slice() else {
             continue;
         };
         count += 1;
@@ -752,7 +752,22 @@ pub fn launches(db: &Database, paths: &Paths) -> Check {
                 .flatten()
                 .map(|r| r.display_name)
                 .unwrap_or_else(|| (*id).to_string());
-            last_failure = Some((name, (*code).to_string(), Vec::new()));
+            let when = when
+                .parse::<i64>()
+                .map(|t| {
+                    // 20251009T090140Z → 2025-10-09 09:01
+                    let st = crate::saves::utc_stamp(t);
+                    format!(
+                        " ({}-{}-{} {}:{} UTC)",
+                        &st[0..4],
+                        &st[4..6],
+                        &st[6..8],
+                        &st[9..11],
+                        &st[11..13]
+                    )
+                })
+                .unwrap_or_default();
+            last_failure = Some((name, (*code).to_string(), when, Vec::new()));
         }
     }
     if count == 0 {
@@ -765,7 +780,7 @@ pub fn launches(db: &Database, paths: &Paths) -> Check {
             Outcome::Pass,
             format!("{count} launches, all ended normally."),
         ),
-        Some((name, code, out)) => {
+        Some((name, code, when, out)) => {
             let said = if out.is_empty() {
                 String::new()
             } else {
@@ -776,7 +791,7 @@ pub fn launches(db: &Database, paths: &Paths) -> Check {
                 N,
                 Outcome::Warn,
                 format!(
-                    "{count} launches; the last that failed: {name} ended with exit {code}.{said}"
+                    "{count} launches; the last that failed: {name} ended with exit {code}{when}.{said}"
                 ),
             )
         }
