@@ -47,9 +47,10 @@ describe("reference screens", () => {
     const { app } = s;
     await app.dismissStartupPrompt();
     await app.waitFor(async () => !/Syncing/.test(await app.bodyText()), "the first sync", 30_000);
-    // Nothing that moves: no transitions, no blinking caret.
+    // Nothing that moves: no transitions, no blinking caret, and the sync time ("synced 1 min
+    // ago") hidden, the one text that changes with the clock.
     await app.js(`const st = document.createElement("style");
-      st.textContent = "*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }";
+      st.textContent = "*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; } .sync-status { visibility: hidden !important; }";
       document.head.append(st);`);
   });
   after(() => s?.close());

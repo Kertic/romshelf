@@ -157,9 +157,32 @@ export class App {
     }
     throw new Error(`Couldn't reach "${label}" with the D-pad (focus on "${await this.focused()}")`);
   }
+  /**
+   * WebKitWebDriver's screenshot waits for the page to paint a new frame, so on a still page it
+   * can wait indefinitely. A 1-pixel element flickers between two shades too close to count as a
+   * difference while it's taken, and the wait is capped at a minute.
+   */
   async screenshot(name) {
     mkdirSync(OUT, { recursive: true });
-    const png = Buffer.from(await this.driver.takeScreenshot(), "base64");
+    await this.js(`const d = document.createElement("div");
+      d.id = "e2e-repaint";
+      d.style.cssText = "position:fixed;right:0;bottom:0;width:1px;height:1px;z-index:99999;pointer-events:none";
+      document.body.append(d);
+      let on = false;
+      const tick = () => {
+        if (!d.isConnected) return;
+        on = !on;
+        d.style.background = on ? "rgb(18, 22, 28)" : "rgb(18, 22, 29)";
+        requestAnimationFrame(tick);
+      };
+      tick();`);
+    let timer;
+    const shot = await Promise.race([
+      this.driver.takeScreenshot(),
+      new Promise((_, no) => (timer = setTimeout(() => no(new Error(`Screenshot ${name} took over a minute`)), 60_000))),
+    ]).finally(() => clearTimeout(timer));
+    await this.js('document.getElementById("e2e-repaint")?.remove()');
+    const png = Buffer.from(shot, "base64");
     writeFileSync(path.join(OUT, `${name}.png`), png);
     return png;
   }

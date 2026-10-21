@@ -74,6 +74,7 @@ jobs:
           npm ci --prefix e2e
 
       - name: End-to-end tests
+        timeout-minutes: 20
         env:
           # No Linux baselines yet: this run writes them (in the artifact below) to review and commit.
           ROMSHELF_E2E_UPDATE: ${{ hashFiles('e2e/screens/linux/*.png') == '' && '1' || '0' }}
