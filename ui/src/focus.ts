@@ -23,7 +23,17 @@ function centre(r: DOMRect) {
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
 }
 
-/** Picks the best candidate; exported for tests. */
+/** True when two boxes share some of the row (for left/right) or column (for up/down). */
+function inLine(a: DOMRect, b: DOMRect, dir: Direction): boolean {
+  return dir === "left" || dir === "right"
+    ? Math.min(a.bottom, b.bottom) > Math.max(a.top, b.top)
+    : Math.min(a.right, b.right) > Math.max(a.left, b.left);
+}
+
+/**
+ * Picks the best candidate; exported for tests. Something in line (the same row for left and
+ * right) wins over something nearer but off to the side, so Left never drops a row.
+ */
 export function pick(from: DOMRect, candidates: DOMRect[], dir: Direction): number {
   const c = centre(from);
   let best = -1;
@@ -35,7 +45,7 @@ export function pick(from: DOMRect, candidates: DOMRect[], dir: Direction): numb
     const along = dir === "left" ? -dx : dir === "right" ? dx : dir === "up" ? -dy : dy;
     const across = dir === "left" || dir === "right" ? Math.abs(dy) : Math.abs(dx);
     if (along <= 1) return;
-    const score = along + across * 2;
+    const score = (inLine(from, r, dir) ? 0 : 100_000) + along + across * 2;
     if (score < bestScore) {
       bestScore = score;
       best = i;
