@@ -1,5 +1,42 @@
 # Progress
 
+## After stage 10: checks and follow-ups (branch `stage-10-followups`)
+
+Status: **built; CI green (end-to-end and visual on Linux).** Main has stages 0 to 6 only: PRs #11 to #14 were merged into the branch below each one rather than main (as #7 to #9 were). This branch is main plus stage 10 (which holds 7 to 10), so merging it into main brings everything in.
+
+### Checked locally (2026-10-21, main plus stage 10)
+
+- UI lint, 172 UI tests (179 after the fixes below), the UI build, `cargo fmt`, clippy and 321 Rust tests: all passed.
+- The browser preview walked with the keyboard alone (Library, ROM page, shortcut name editing, Transfers, Emulators), then the real app in fake mode under WebDriver (below).
+
+### Found and fixed (each with a test written first)
+
+- **Focus vanished when a dialog closed.** Closing Transfers or the "Remove from this Deck?" question left focus on the page itself: nothing highlighted, and the hints still offered the closed dialog's Close until the next press. Now the last dialog to close gives focus back to what had it, or to the screen's main action if that's gone.
+- **B didn't close "Restart Steam to apply".** The prompt never set a B action, so B did nothing and the hints showed the page's B. Now B is Later while it's open, and the page's own B comes back after.
+- **Left from "Download again" dropped a row.** The D-pad picked a nearer card below ("Restore save from Drive…") over Play beside it. Left and right now prefer the same row, up and down the same column.
+- **The sync status wrapped onto three lines at 1280 px** (seen in CI's first Linux screenshot): with Transfers and Settings in the top band, "Google Drive synced 1 min ago" didn't fit. It now shows "Synced 1 min ago" or "Syncing…" on one line, with the full words as the button's name. This departs from the guide's wording, which predates those two buttons.
+
+### Built
+
+- **WebDriver end-to-end tests** (`e2e/`, stage 9's step 10): the release binary in fake mode under `tauri-driver`, driven only by gamepad keys. The D-pad steers to each control the way a player would, then A, B, L1 and R1. All six of the stage file's flows:
+  1. First run, sign in (faked), choose a location, Library.
+  2. R1 to switch system, open a game, Download, Play (the fake emulator), back.
+  3. Controls: rebind, Save, the card counts the difference. The keyboard can only press inputs that are already bound, so this is a swap and the card shows 2 differences; a free input (X) would move and show 1.
+  4. Steam shortcut: rename, Save, the restart prompt appears once on leaving, B closes it, and it doesn't come back.
+  5. A game whose emulator is missing: Set up, then the page is ready.
+  6. Remove from this Deck: the tile shows "In Drive only".
+- **Visual regression:** the five reference screens in fake mode, compared with baselines within 0.5% of pixels (a painted block of 1.3% fails it, with a diff image).
+  - Documentation and behaviour disagree here: the stage file says to compare with `docs/kit/ui/screens/*.png`, but those show a different library (eight games, "23 ROMs in Drive"), no Transfers or Settings in the top band, and "Delete…" where Romshelf now says "Remove from Deck…" (your 2026-10-19 decision). No tolerance could pass them.
+  - So the baselines are the app's own, per platform (`e2e/screens/<platform>/`), and the reference images stay the by-eye check. The Linux baselines were written by CI and reviewed by eye before committing; CI now compares against them. **Your call if you'd rather have it another way.**
+- **CI:** both run on Ubuntu under Xvfb after the AppImage build; screenshots and any diffs are uploaded as `e2e-screens`. WebKit's driver waits for a fresh frame before a screenshot, which hung the first run for an hour on a still page; a 1-pixel flicker now keeps frames coming, and each screenshot, test and the step have time limits. The sync time is hidden in screenshots since it changes with the clock.
+- Locally they pass on Windows too, against a debug build with Edge's driver (CLAUDE.md has the variables).
+
+### Still deferred
+
+- **Killing the process at each pipeline step** (stage 10): needs a harness that kills the real binary mid-step. The WebDriver harness is a start (it runs the real binary), but stopping it at a chosen step needs a hook in the pipeline.
+- **2,000-game scrolling measured for dropped frames** (stage 9): the windowed grid is tested by how many tiles are drawn, not by frame timing.
+- **SteamGridDB** (stage 8): unchanged.
+
 ## Stage 10: packaging and hardening (branch `stage-10-packaging`, on top of stage 9)
 
 Status: **built overnight while you were away; waiting for the on-Deck checks.** Self-update and the release workflow (steps 3 and 9) were done earlier as stage 10a.
@@ -48,7 +85,7 @@ Status: **built overnight while you were away; waiting for the on-Deck checks.**
 ### Deferred
 
 - **Killing the process at each pipeline step:** that needs a harness that runs the real binary and kills it. Covered instead step by step: downloads resume, a launch cut short is backed up at the next run, an interrupted restore is repaired, and the launch lock of an ended Romshelf is ignored.
-- **WebDriver end-to-end and visual regression** (from stage 9): still to be built in CI.
+- **WebDriver end-to-end and visual regression** (from stage 9): built after stage 10; see the top section.
 
 ### On-Deck checklist
 
