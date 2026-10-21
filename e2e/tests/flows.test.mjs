@@ -161,3 +161,38 @@ describe("Library and a game", () => {
     assert.match(await tileStatus(app, "Tidewalker"), /In Drive only/);
   });
 });
+
+describe("self-test", () => {
+  let s;
+  before(async () => {
+    s = await launch();
+    await s.app.dismissStartupPrompt();
+  });
+  after(() => s?.close());
+
+  it("7. Settings → Run the self-test: automatic checks and the tour, then the guided steps", async () => {
+    const { app } = s;
+    await app.waitForHeading("All systems");
+    await app.navigateTo("Settings");
+    await app.press(KEYS.A);
+    await app.waitForHeading("Settings");
+    await app.navigateTo("Run the self-test");
+    await app.press(KEYS.A);
+    await app.waitFor(
+      async () => /^Step 1 of 6/.test((await app.js("return document.querySelector('h2')?.textContent ?? ''")) ?? ""),
+      "the guided steps",
+      180_000,
+    );
+    const rows = await app.js(
+      "return [...document.querySelectorAll('.selftest-row')].map((r) => r.className.replace('selftest-row ', '') + ' ' + r.textContent)",
+    );
+    const text = rows.join("\n");
+    for (const part of ["Setup / Google account", "Drive / Round trip", "Interface / Library", "Interface / Settings"]) {
+      assert.ok(text.includes(part), `no ${part} in:\n${text}`);
+    }
+    assert.ok(rows.find((r) => r.includes("Drive / Round trip")).startsWith("pass"), text);
+    const interfaceFails = rows.filter((r) => r.startsWith("fail") && r.includes("Interface /"));
+    assert.deepEqual(interfaceFails, []);
+    assert.match(await app.bodyText(), /Saved to .*latest\.txt/);
+  });
+});

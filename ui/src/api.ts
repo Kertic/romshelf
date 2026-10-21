@@ -747,3 +747,60 @@ export async function transfers(): Promise<TransferRow[]> {
 export async function openSteamKeyboard(): Promise<void> {
   if (inTauri()) await invoke("open_steam_keyboard");
 }
+
+/** One self-test check: the core's (`romshelf_core::selftest::Check`) and the interface's. */
+export interface SelfTestCheck {
+  group: string;
+  name: string;
+  outcome: "pass" | "warn" | "fail" | "skip";
+  detail: string;
+  fix: string | null;
+}
+
+const PREVIEW_CHECKS: SelfTestCheck[] = [
+  { group: "Setup", name: "Google account", outcome: "pass", detail: "signed in as player@example.com", fix: null },
+  { group: "Steam", name: "Tidewalker", outcome: "pass", detail: "Launches gba-e2bb15b4; artwork and Steam Input layout in place.", fix: null },
+  { group: "Drive", name: "Round trip", outcome: "pass", detail: "Sent 4 MB up and back; resumed after a dropped connection; checksums matched.", fix: null },
+];
+
+/** Runs every check Romshelf can do by itself; `onCheck` hears each as it finishes. */
+export async function selftestRun(onCheck: (c: SelfTestCheck) => void): Promise<SelfTestCheck[]> {
+  if (!inTauri()) {
+    PREVIEW_CHECKS.forEach(onCheck);
+    return PREVIEW_CHECKS;
+  }
+  const unlisten = await listen<SelfTestCheck>("selftest-check", (e) => onCheck(e.payload));
+  try {
+    return await invoke<SelfTestCheck[]>("selftest_run");
+  } finally {
+    unlisten();
+  }
+}
+
+/** What the guided steps watch. */
+export interface SelfTestProbe {
+  online: boolean;
+  pending_backups: number;
+  storage_available: boolean;
+  storage_removable: boolean;
+  storage_root: string;
+  launches: number;
+}
+
+export async function selftestProbe(): Promise<SelfTestProbe> {
+  if (!inTauri()) {
+    return { online: true, pending_backups: 0, storage_available: true, storage_removable: false, storage_root: "~/Romshelf", launches: 0 };
+  }
+  return invoke<SelfTestProbe>("selftest_probe");
+}
+
+/** Backs up owed saves now. */
+export async function selftestFlush(): Promise<void> {
+  if (inTauri()) await invoke("selftest_flush");
+}
+
+/** Saves the report; where it went. */
+export async function selftestSave(text: string, json: unknown): Promise<string> {
+  if (!inTauri()) return "(browser preview: not saved)";
+  return invoke<string>("selftest_save", { text, json });
+}

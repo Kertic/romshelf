@@ -1,5 +1,55 @@
 # Progress
 
+## Self-test (branch `self-test`, on top of `stage-10-followups`)
+
+Status: **built; to try on the Deck.** You asked for a button that runs the tests for you. It's **Settings → Run the self-test**.
+
+### What it does
+
+1. **Automatic checks** (about a minute; nothing of yours changes):
+   - `doctor`'s checks.
+   - Steam's shortcuts file: readable, and still executable.
+   - Each of Romshelf's shortcuts: launches a game Romshelf has, with its artwork and its Steam Input layout. Romshelf's own shortcut is there.
+   - Each downloaded game: its launch planned step by step (as `doctor --id`).
+   - The emulator files Romshelf writes: RetroArch's remap settings and each game's controls.
+   - ROM storage: a file written, read back and removed; free space.
+   - Drive: a 4 MB file sent to `.romshelf/selftest/`, checked, downloaded the way a ROM is (with the connection dropped halfway, so it has to resume), checked again, then trashed.
+   - How recent launches ended, from `launch.log`.
+2. **A tour of each screen** (Library, Transfers, a game's page, Controls, Steam shortcut, Emulators, Settings). Each is checked as shown:
+   - every control reachable with the D-pad;
+   - focus present and drawn;
+   - nothing wrapping in the top band or footer, and nothing wider than the screen;
+   - targets at least 44 px, with a button hint each;
+   - the smallest text size.
+
+   Closing a panel must give focus back.
+3. **Guided steps**, one at a time, each detecting the result where it can (every step can be skipped):
+   - **Buttons:** press each, back grips included. This shows whether Romshelf's own shortcut has the Steam Input layout.
+   - **On-screen keyboard:** type "ok".
+   - **Readable at arm's length:** you answer.
+   - **A game's own controls:** plays a game whose controls differ from the default (Kirby), then asks.
+   - **Airplane mode:** it waits for the network to go and checks the Library opens offline. Then it plays a game, checks a backup is owed, waits for the network to return and watches the backup reach Drive.
+   - **SD card:** it waits for the card to go and come back. It's skipped while ROMs are on internal storage.
+
+**The report** is saved after every step to `~/.local/share/romshelf/logs/selftest/latest.txt` (with `latest.json` and a timestamped copy), where Claude can read it over SSH. `romshelf doctor --selftest` runs part 1 without the window.
+
+### Found by its first run (fixed)
+
+- **Focus on opening:** Settings and the Steam shortcut screen opened with nothing focused. The first D-pad press only found focus. Now any screen opening with nothing focused starts on its main action.
+- **Checkbox targets:** checkbox rows were under 44 px and had no button hint. Rows are now 44 px tall, with bigger boxes in the accent colour and a "Toggle" hint.
+
+### Tests
+
+- 10 Rust tests for the checks. The Drive test proves the resume really asked from halfway, and that only Romshelf's own folder was touched.
+- UI tests for the audit (6), the screen (5) and the app-level tour.
+- A WebDriver flow running it in the real app.
+
+`[update screens]` in a commit message now makes CI write fresh comparison images, for screens changed on purpose.
+
+### On-Deck checklist
+
+- [ ] Run Settings → Run the self-test and go through the guided steps; Claude reads the report.
+
 ## After stage 10: checks and follow-ups (branch `stage-10-followups`)
 
 Status: **built; CI green (end-to-end and visual on Linux).** Main has stages 0 to 6 only: PRs #11 to #14 were merged into the branch below each one rather than main (as #7 to #9 were). This branch is main plus stage 10 (which holds 7 to 10), so merging it into main brings everything in.

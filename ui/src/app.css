@@ -849,10 +849,17 @@ button:focus {
   object-fit: cover;
 }
 .check {
+  min-height: var(--target-min);
   display: flex;
-  gap: 10px;
+  gap: 12px;
   align-items: center;
   font-size: 14px;
+}
+.check input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
 }
 .check input:focus {
   outline: 2px solid var(--accent);
@@ -1197,5 +1204,72 @@ button:focus {
   flex: 1;
 }
 .key.on {
+  border-color: var(--accent);
+}
+
+/* Self-test (Settings → Run the self-test). */
+.selftest-host:not([hidden]) {
+  display: contents;
+}
+.selftest-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 32px;
+  min-height: 0;
+  flex: 1;
+}
+.selftest-step {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.selftest-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.selftest-row {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 14px;
+}
+.selftest-icon {
+  flex: none;
+  width: 18px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.selftest-row.warn .selftest-icon {
+  color: var(--warning);
+}
+.selftest-row.fail .selftest-icon {
+  color: var(--danger);
+}
+.selftest-row.skip .selftest-icon {
+  color: var(--text-secondary);
+}
+.selftest-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.selftest-button {
+  min-width: 52px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-row);
+  font-weight: 600;
+}
+.selftest-button.seen {
+  background: var(--accent);
+  color: var(--on-accent);
   border-color: var(--accent);
 }

@@ -17,6 +17,7 @@ pub mod model;
 pub mod paths;
 pub mod process;
 pub mod saves;
+pub mod selftest;
 pub mod settings;
 pub mod steam;
 pub mod storage;

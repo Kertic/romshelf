@@ -128,13 +128,14 @@ export function SteamShortcut({ view, setBack, onBack, onSave, onAutoAdd, onArtw
             <span className="body-text">{name || view.default_name}</span>
           </div>
           <label className="check">
-            <input type="checkbox" data-focusable checked={shown} onChange={(e) => setShown(e.target.checked)} />
+            <input type="checkbox" data-focusable data-hint="Toggle" checked={shown} onChange={(e) => setShown(e.target.checked)} />
             Show {name || view.default_name} in Steam library
           </label>
           <label className="check">
             <input
               type="checkbox"
               data-focusable
+              data-hint="Toggle"
               checked={view.auto_add}
               onChange={(e) => void run(() => onAutoAdd(e.target.checked))}
             />

@@ -54,16 +54,12 @@ export function pick(from: DOMRect, candidates: DOMRect[], dir: Direction): numb
   return best;
 }
 
-export function moveFocus(dir: Direction, root: ParentNode = document): boolean {
-  const all = focusables(root);
-  if (all.length === 0) return false;
-  const current = document.activeElement as HTMLElement | null;
-  if (!current || !all.includes(current)) {
-    restoreFocus(root);
-    return true;
-  }
+/**
+ * Where a press would take focus from `current`, without moving it: the nearest in the
+ * pressed direction within the current region, then across regions. Null when nothing is there.
+ */
+export function nextFocus(current: HTMLElement, dir: Direction, all: HTMLElement[]): HTMLElement | null {
   const others = all.filter((el) => el !== current);
-  // The nearest in the pressed direction within the current region, then across regions.
   const home = region(current);
   const near = home ? others.filter((el) => region(el) === home) : [];
   for (const pool of [near, others]) {
@@ -72,13 +68,24 @@ export function moveFocus(dir: Direction, root: ParentNode = document): boolean 
       pool.map((el) => el.getBoundingClientRect()),
       dir,
     );
-    if (i >= 0) {
-      pool[i]!.focus();
-      pool[i]!.scrollIntoView?.({ block: "nearest" });
-      return true;
-    }
+    if (i >= 0) return pool[i]!;
   }
-  return false;
+  return null;
+}
+
+export function moveFocus(dir: Direction, root: ParentNode = document): boolean {
+  const all = focusables(root);
+  if (all.length === 0) return false;
+  const current = document.activeElement as HTMLElement | null;
+  if (!current || !all.includes(current)) {
+    restoreFocus(root);
+    return true;
+  }
+  const next = nextFocus(current, dir, all);
+  if (!next) return false;
+  next.focus();
+  next.scrollIntoView?.({ block: "nearest" });
+  return true;
 }
 
 /**

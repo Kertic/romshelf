@@ -36,6 +36,10 @@ pub trait SteamFiles: Send + Sync {
     fn write_controller_set(&self, user: &str, text: &str) -> Result<()>;
     /// A shortcut's layout: `Steam Controller Configs/<id>/config/<key>/controller_neptune.vdf`.
     fn write_controller_layout(&self, user: &str, key: &str, text: &str) -> Result<()>;
+    /// A shortcut's layout, if Steam has one under `key`.
+    fn read_controller_layout(&self, user: &str, key: &str) -> Result<Option<String>>;
+    /// Whether `shortcuts.vdf` can be executed (`None` with no file). Off Linux, always true.
+    fn shortcuts_executable(&self, user: &str) -> Result<Option<bool>>;
 }
 
 /// The real Steam directory (`~/.steam/steam`), or a temp copy of it in tests.
@@ -234,6 +238,34 @@ impl SteamFiles for FsSteamFiles {
                 .join("controller_neptune.vdf"),
             text.as_bytes(),
         )
+    }
+
+    fn read_controller_layout(&self, user: &str, key: &str) -> Result<Option<String>> {
+        plain_name(key)?;
+        let path = self
+            .controller_dir(user)
+            .join(key)
+            .join("controller_neptune.vdf");
+        Ok(read_optional(&path)?.map(|b| String::from_utf8_lossy(&b).into_owned()))
+    }
+
+    fn shortcuts_executable(&self, user: &str) -> Result<Option<bool>> {
+        let path = self.config_dir(user).join("shortcuts.vdf");
+        let meta = match std::fs::metadata(&path) {
+            Ok(m) => m,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            Ok(Some(meta.permissions().mode() & 0o111 != 0))
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = meta;
+            Ok(Some(true))
+        }
     }
 }
 
