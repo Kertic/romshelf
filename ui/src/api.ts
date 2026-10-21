@@ -103,6 +103,8 @@ export interface AppInfo {
 export interface GilrsSnapshot {
   pads: { id: number; name: string; pressed: string[]; axes: Record<string, number> }[];
   last_event: string;
+  /** A game is running: the pad is the game's, and Romshelf ignores it (both paths). */
+  blocked?: boolean;
 }
 
 export const inTauri = (): boolean => isTauri();

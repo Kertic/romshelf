@@ -492,3 +492,23 @@ fn every_launch_prepares_the_session_folder_again() {
     r.launch(id(&rom)).0.unwrap();
     assert!(Dolphin::config_dir(&r.paths).join("GCPadNew.ini").is_file());
 }
+
+#[test]
+fn the_runner_says_a_game_is_running_only_while_it_runs() {
+    use romshelf_core::process::{CommandSpec, ProcessRunner};
+    let runner = std::sync::Arc::new(FakeProcessRunner::default());
+    runner.push_exit(0, std::time::Duration::from_millis(300));
+    assert!(!runner.is_running());
+    let r = std::sync::Arc::clone(&runner);
+    let game = std::thread::spawn(move || {
+        r.run_and_wait(&CommandSpec {
+            program: "flatpak".into(),
+            args: vec![],
+            env: vec![],
+        })
+    });
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert!(runner.is_running(), "while the game runs");
+    game.join().unwrap().unwrap();
+    assert!(!runner.is_running(), "after it ends");
+}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { onGilrs, type GilrsSnapshot } from "./api";
-import { browserPressed, gilrsPressed, isTyping, keyButton, PressTracker, type Button } from "./input";
+import { browserPressed, gateHeld, gilrsPressed, isTyping, keyButton, PressTracker, type Button } from "./input";
 
 export interface BrowserPad {
   index: number;
@@ -41,6 +41,8 @@ export function useInput(onPress: (b: Button, from: "pad" | "keyboard") => void)
     let source: Source | null = null;
     let gilrsHeld = new Set<Button>();
     let gilrsSnap: GilrsSnapshot | null = null;
+    // The browser's pads obey the same rule as gilrs's (which applies it before sending).
+    const browserHeldOver = new Set<Button>();
     let lastJson = "";
     let frame = 0;
 
@@ -59,7 +61,7 @@ export function useInput(onPress: (b: Button, from: "pad" | "keyboard") => void)
         pressed: [...browserPressed(p)],
         axes: p.axes.map((a) => Math.round(a * 100) / 100),
       }));
-      const browserHeld = new Set<Button>(browser.flatMap((p) => p.pressed));
+      const browserHeld = gateHeld(new Set<Button>(browser.flatMap((p) => p.pressed)), gilrsSnap?.blocked ?? false, browserHeldOver);
       feed("browser", browserHeld, now);
       // Re-feed gilrs every frame so held directions auto-repeat.
       feed("gilrs", gilrsHeld, now);

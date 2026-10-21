@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browserPressed, gilrsPressed, isTyping, keyButton, PressTracker, type Button } from "./input";
+import { browserPressed, gateHeld, gilrsPressed, isTyping, keyButton, PressTracker, type Button } from "./input";
 import { pick } from "./focus";
 
 const pad = (pressedIdx: number[], axes = [0, 0, 0, 0]) => ({
@@ -80,5 +80,17 @@ describe("keys while typing", () => {
     expect(isTyping(document.createElement("textarea"))).toBe(true);
     expect(isTyping(document.createElement("button"))).toBe(false);
     expect(isTyping(null)).toBe(false);
+  });
+});
+
+describe("gateHeld", () => {
+  it("hears nothing while a game runs, and a button held from the game only after release", () => {
+    const over = new Set<Button>();
+    expect([...gateHeld(new Set<Button>(["a"]), true, over)]).toEqual([]);
+    // The game ended with A down.
+    expect([...gateHeld(new Set<Button>(["a"]), false, over)]).toEqual([]);
+    expect([...gateHeld(new Set<Button>(["a", "b"]), false, over)]).toEqual(["b"]);
+    expect([...gateHeld(new Set<Button>(), false, over)]).toEqual([]);
+    expect([...gateHeld(new Set<Button>(["a"]), false, over)]).toEqual(["a"]);
   });
 });

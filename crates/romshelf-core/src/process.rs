@@ -138,6 +138,11 @@ pub trait ProcessRunner: Send + Sync {
     fn last_output(&self) -> Vec<String> {
         Vec::new()
     }
+
+    /// A program started by `run_and_wait` is running now (a game is being played).
+    fn is_running(&self) -> bool {
+        false
+    }
 }
 
 pub struct FlatpakRunner;
@@ -211,6 +216,17 @@ pub struct SystemProcessRunner {
     tail: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
     /// Set by `request_stop`; cleared when a program starts.
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Set while a program started here runs.
+    running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// Clears the running flag however `run_and_wait` ends.
+struct Running<'a>(&'a std::sync::atomic::AtomicBool);
+
+impl Drop for Running<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 
 /// Lines of stderr kept for error reports.
@@ -224,6 +240,9 @@ impl ProcessRunner for SystemProcessRunner {
             .envs(cmd.env.iter().map(|(k, v)| (k, v)))
             .stderr(std::process::Stdio::piped())
             .spawn()?;
+        self.running
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let _running = Running(&self.running);
         // Stderr still reaches the terminal (and Steam's log); the last lines are kept too.
         let tail = std::sync::Arc::clone(&self.tail);
         if let Ok(mut t) = tail.lock() {
@@ -280,6 +299,10 @@ impl ProcessRunner for SystemProcessRunner {
 
     fn request_stop(&self) {
         self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn is_running(&self) -> bool {
+        self.running.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 
