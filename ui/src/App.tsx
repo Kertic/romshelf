@@ -61,7 +61,7 @@ import {
   type SyncStatus,
 } from "./api";
 import { FirstRun, type BackAction } from "./FirstRun";
-import { focusables, focusLost, moveFocus, restoreFocus, type Direction } from "./focus";
+import { focusables, focusLost, moveFocus, restoreFocus, watchDialogs, type Direction } from "./focus";
 import { Footer, type Hint } from "./Footer";
 import { GamepadSpike } from "./GamepadSpike";
 import { Emulators, type SetupState } from "./Emulators";
@@ -409,6 +409,8 @@ export function App() {
     document.addEventListener("focusin", syncHint);
     return () => document.removeEventListener("focusin", syncHint);
   }, [syncHint]);
+  // A closed dialog hands focus back, so something is always highlighted.
+  useEffect(() => watchDialogs(), []);
   const onPress = useCallback(
     (b: Button, from: "pad" | "keyboard") => {
       if (screen === "controls" && keyHandler.current?.(b, from)) return;

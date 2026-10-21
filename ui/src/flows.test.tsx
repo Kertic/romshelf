@@ -112,5 +112,25 @@ describe("flows with the gamepad alone", () => {
     await settle();
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(heading()).toBe("Tidewalker");
+    // Focus stays visible when the question closes, on the page's own controls.
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement?.closest("[data-dialog]")).toBeNull();
+  });
+
+  it("closing Transfers puts focus back on the Transfers button", async () => {
+    await start();
+    await settle();
+    const transfers = screen.getByRole("button", { name: "Transfers" });
+    act(() => transfers.focus());
+    await press("Enter");
+    await settle();
+    const panel = screen.getByRole("dialog", { name: "Transfers" });
+    expect(panel.contains(document.activeElement)).toBe(true);
+    await press("Escape");
+    await settle();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Transfers" }));
+    // The hint bar follows focus back, rather than still offering the panel's Close.
+    expect(screen.getByLabelText("Button hints").textContent).not.toMatch(/Close/);
   });
 });

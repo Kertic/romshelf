@@ -88,3 +88,36 @@ export function focusLost(): boolean {
   const el = document.activeElement as HTMLElement | null;
   return !el || el === document.body || !el.isConnected || !reachable(el);
 }
+
+/**
+ * Gives focus back when the last open dialog closes: to what held it before the dialog opened,
+ * else (that element went with the dialog) to the screen's main action. Without this, closing a
+ * dialog leaves focus on the page itself, with nothing highlighted until the next press.
+ */
+export function watchDialogs(): () => void {
+  let opener: HTMLElement | null = null;
+  let open = document.querySelector("[data-dialog]") != null;
+  const onFocus = (e: FocusEvent) => {
+    const el = e.target as HTMLElement | null;
+    if (el?.closest && !el.closest("[data-dialog]")) opener = el;
+  };
+  const observer = new MutationObserver(() => {
+    const now = document.querySelector("[data-dialog]") != null;
+    if (open && !now && focusLost()) {
+      if (opener && opener.isConnected && reachable(opener)) opener.focus();
+      else restoreFocus();
+    }
+    open = now;
+  });
+  document.addEventListener("focusin", onFocus);
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["inert", "aria-hidden", "hidden"],
+  });
+  return () => {
+    document.removeEventListener("focusin", onFocus);
+    observer.disconnect();
+  };
+}
