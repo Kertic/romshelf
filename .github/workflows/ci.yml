@@ -37,6 +37,7 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             ui/package-lock.json
+            e2e/package-lock.json
 
       - name: Install front-end packages
         run: |
@@ -63,6 +64,30 @@ jobs:
 
       - name: Build AppImage
         run: npx tauri build --bundles appimage
+
+      # Stage 9's end-to-end flows and visual regression: the release binary in fake mode under
+      # tauri-driver (WebKitWebDriver) on a virtual display, driven only by gamepad keys.
+      - name: WebDriver tools
+        run: |
+          sudo apt-get install -y webkit2gtk-driver xvfb
+          cargo install tauri-driver --locked
+          npm ci --prefix e2e
+
+      - name: End-to-end tests
+        env:
+          # No Linux baselines yet: this run writes them (in the artifact below) to review and commit.
+          ROMSHELF_E2E_UPDATE: ${{ hashFiles('e2e/screens/linux/*.png') == '' && '1' || '0' }}
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npm --prefix e2e test
+
+      - name: End-to-end screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screens
+          path: |
+            e2e/out/
+            e2e/screens/linux/
+          if-no-files-found: ignore
 
       - name: Rename AppImage
         run: |

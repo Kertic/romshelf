@@ -74,6 +74,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 npx tauri dev                        # run the app (add ROMSHELF_FAKE=1 for fixtures)
 npx tauri build --bundles appimage   # Linux only; CI does this
+npm ci --prefix e2e && npm --prefix e2e test   # WebDriver flows + visual regression on a built binary (needs tauri-driver; CI runs it)
 ```
+
+Locally on Windows, the e2e tests need `ROMSHELF_E2E_APP` (the built `romshelf.exe`) and `ROMSHELF_E2E_NATIVE_DRIVER` (an `msedgedriver.exe` matching Edge, from `msedgedriver-tool`). Baselines are per platform in `e2e/screens/<platform>/`; `ROMSHELF_E2E_UPDATE=1` rewrites them.
 
 CI (`.github/workflows/ci.yml`) runs all of the above on Ubuntu 22.04 and uploads `romshelf-appimage`.
