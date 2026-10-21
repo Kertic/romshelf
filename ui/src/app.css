@@ -441,6 +441,8 @@ button:focus {
   background: transparent;
   color: var(--text-secondary);
   font-size: 13px;
+  white-space: nowrap;
+  flex: none;
   display: flex;
   align-items: center;
   gap: 10px;

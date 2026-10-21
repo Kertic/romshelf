@@ -170,9 +170,11 @@ export function Home({
           data-hint="Sync now"
           disabled={busy}
           onClick={onSync}
+          aria-label={line.text}
+          title={line.text}
         >
           <span className={busy ? "sync-dot busy" : "sync-dot"} aria-hidden />
-          {line.text}
+          {line.short}
         </button>
       </header>
 

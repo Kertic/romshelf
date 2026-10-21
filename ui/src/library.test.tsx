@@ -73,16 +73,26 @@ describe("library helpers", () => {
   });
 
   it("words each sync state", () => {
-    expect(syncLine(null, NOW)).toEqual({ text: "Not synced yet", warn: false });
+    expect(syncLine(null, NOW)).toEqual({ text: "Not synced yet", short: "Not synced yet", warn: false });
     expect(syncLine(synced(120), NOW).text).toBe("Google Drive synced 2 min ago");
     expect(syncLine({ state: "syncing", last_synced_at: null, message: null }, NOW).text).toBe(
       "Syncing with Google Drive…",
     );
     expect(syncLine({ state: "offline", last_synced_at: null, message: "x" }, NOW)).toEqual({
       text: "Offline",
+      short: "Offline",
       warn: true,
     });
     expect(syncLine({ state: "error", last_synced_at: null, message: "x" }, NOW).warn).toBe(true);
+  });
+
+  it("shows a short form that fits the top band at 1280 px, the full words as its name", () => {
+    expect(syncLine(synced(120), NOW).short).toBe("Synced 2 min ago");
+    expect(syncLine({ state: "syncing", last_synced_at: null, message: null }, NOW).short).toBe("Syncing…");
+    expect(syncLine({ state: "error", last_synced_at: null, message: "x" }, NOW).short).toBe("Sync failed");
+    for (const s of [null, synced(120), synced(13 * 86400)]) {
+      expect(syncLine(s, NOW).short.length).toBeLessThanOrEqual(16);
+    }
   });
 });
 
@@ -145,6 +155,7 @@ describe("Library screen", () => {
     );
     const busy = screen.getByRole("button", { name: "Syncing with Google Drive…" }) as HTMLButtonElement;
     expect(busy.disabled).toBe(true);
+    expect(busy.textContent).toBe("Syncing…");
   });
 
   it("shows why a sync failed", () => {
