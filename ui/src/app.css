@@ -705,3 +705,495 @@ button:focus {
   font-weight: 600;
   z-index: 20;
 }
+
+/* Controls editor (UI guide section 5.4). */
+.controls-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.scope-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.controls-body {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 24px;
+  align-items: start;
+}
+.controls-lists {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.control-row {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  width: 100%;
+}
+.control-row.listening {
+  border-color: var(--accent);
+}
+.control-target {
+  font-weight: 500;
+}
+.tag {
+  font-size: 12px;
+  font-weight: 600;
+}
+.controls-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.controls-side .button {
+  white-space: normal;
+  height: auto;
+  min-height: var(--target-min);
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.controls-lists .folder-list {
+  max-height: none;
+}
+
+/* Steam shortcut screen (UI guide section 5.5). */
+.shortcut-body {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 24px;
+  align-items: start;
+}
+.shortcut-main {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.text-input {
+  min-height: var(--target-min);
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-row);
+  background: var(--raised);
+  color: inherit;
+  font: inherit;
+}
+.text-input:focus {
+  outline: 2px solid var(--accent);
+}
+.art-slots {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.art-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-row);
+  background: var(--raised);
+  text-align: left;
+}
+.art-slot img {
+  display: block;
+  border-radius: 4px;
+  object-fit: cover;
+}
+.art-capsule img { width: 72px; height: 108px; }
+.art-wide_capsule img { width: 150px; height: 70px; }
+.art-hero img { width: 186px; height: 60px; }
+.art-icon img { width: 48px; height: 48px; }
+.art-logo { min-width: 120px; min-height: 60px; }
+.art-slot.missing {
+  border-style: dashed;
+}
+.art-slot.selected,
+.art-slot:focus {
+  outline: 2px solid var(--accent);
+}
+.well {
+  display: block;
+  padding: 8px 10px;
+  border-radius: var(--radius-row);
+  background: var(--bg);
+  font-size: 13px;
+  word-break: break-all;
+}
+.shortcut-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.library-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.library-preview img {
+  width: 120px;
+  height: 180px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+.check {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 14px;
+}
+.check input:focus {
+  outline: 2px solid var(--accent);
+}
+
+/* ROM page (UI guide 5.2 and 5.3): a 340 px left column, actions and cards on the right. */
+.rom-page {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 32px;
+  overflow-y: auto;
+}
+.rom-left {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 100%;
+}
+.cover.large {
+  height: 250px;
+}
+.cover.large .cover-initials {
+  font-size: 72px;
+}
+.cover.small {
+  width: 56px;
+  height: 84px;
+  padding: 6px;
+}
+.cover.small .cover-initials {
+  font-size: 18px;
+}
+.cover.small .cover-system {
+  font-size: 9px;
+}
+.rom-title {
+  margin: 4px 0 0;
+  font-size: 32px;
+  font-weight: 700;
+}
+.facts {
+  margin: auto 0 0;
+  display: flex;
+  gap: 28px;
+}
+.facts dt {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.facts dd {
+  margin: 4px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.facts dd.warn {
+  color: var(--warning);
+}
+.rom-right {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.rom-actions {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+.rom-actions .wide {
+  flex: 1;
+}
+.button.danger {
+  border: 1px solid var(--danger);
+  background: transparent;
+  color: var(--danger);
+}
+.function-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 8px;
+}
+.function-card {
+  min-height: 64px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--raised);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+}
+.function-card:focus {
+  outline: 2px solid var(--accent);
+}
+.function-card:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+.card-label {
+  font-size: 15px;
+  font-weight: 600;
+}
+.rom-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+.rom-cards .card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Library drawer (UI guide 5.1): the focused tile's game, 400 px on the right. */
+.library {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  height: 100%;
+  min-height: 0;
+}
+.library > .content {
+  min-width: 0;
+}
+.drawer {
+  border-left: 1px solid var(--border-subtle);
+  background: var(--surface);
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+.drawer-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+}
+.drawer .function-row {
+  width: 100%;
+  min-height: var(--target-min);
+}
+.drawer .function-row:focus {
+  outline: 2px solid var(--accent);
+}
+.drawer-file {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.link-button {
+  margin-top: auto;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-weight: 600;
+  text-align: left;
+  min-height: var(--target-min);
+  padding: 0 4px;
+}
+.link-button:focus {
+  outline: 2px solid var(--accent);
+  border-radius: var(--radius-row);
+}
+.drawer-file .button {
+  white-space: normal;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+/* Settings (UI guide section 6). */
+.settings {
+  overflow-y: auto;
+}
+.settings-groups {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  max-width: 1100px;
+}
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.stepper .button {
+  min-width: var(--target-min);
+}
+.stepper-value {
+  min-width: 2ch;
+  text-align: center;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+/* Transfers panel, from the right. */
+.panel-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 10, 13, 0.6);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 15;
+}
+.panel {
+  width: 440px;
+  height: 100%;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+}
+.transfer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.transfer-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.transfer-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.transfer-row .progress-track {
+  flex: 1;
+}
+.transfers-button {
+  position: relative;
+}
+.transfers-count {
+  margin-left: 6px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* A large Library draws only the rows near the screen: fixed row heights keep the maths exact. */
+.grid.windowed {
+  grid-auto-rows: 224px;
+}
+.grid.windowed .tile-text {
+  height: 44px;
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* Loading: skeleton tiles, not a spinner (UI guide stage 9). */
+.tile.skeleton .cover {
+  background: var(--raised);
+}
+.skeleton-line {
+  display: block;
+  height: 12px;
+  width: 70%;
+  border-radius: 6px;
+  background: var(--raised);
+}
+.skeleton-line.short {
+  width: 40%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tile.skeleton .cover,
+  .skeleton-line {
+    animation: skeleton-pulse 1.4s ease-in-out infinite;
+  }
+}
+@keyframes skeleton-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* Text fields and Romshelf's own on-screen keyboard. */
+.text-field {
+  display: flex;
+  gap: 8px;
+}
+.text-field .text-input {
+  flex: 1;
+}
+.dialog.keyboard {
+  width: 640px;
+}
+.keyboard-text {
+  display: flex;
+  align-items: center;
+  min-height: var(--target-min);
+}
+.caret {
+  color: var(--accent);
+}
+.key-row {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+.key {
+  min-width: var(--target-min);
+  min-height: var(--target-min);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-row);
+  background: var(--raised);
+  font-size: 16px;
+}
+.key:focus {
+  outline: 2px solid var(--accent);
+}
+.key.wide {
+  min-width: 100px;
+}
+.key.space {
+  flex: 1;
+}
+.key.on {
+  border-color: var(--accent);
+}

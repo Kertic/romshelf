@@ -17,6 +17,7 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+base64 = "0.22"
 romshelf-core = { path = "../crates/romshelf-core" }
 romshelf-testkit = { path = "../crates/romshelf-testkit" }
 tauri = { version = "2", features = [] }

@@ -49,6 +49,9 @@ jobs:
           npm --prefix ui test
           npm --prefix ui run build
 
+      - name: Installer script
+        run: shellcheck scripts/install.sh
+
       - name: cargo fmt
         run: cargo fmt --all -- --check
 

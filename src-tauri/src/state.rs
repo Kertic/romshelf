@@ -104,6 +104,8 @@ impl AppState {
 
         let root = tempfile::tempdir()?;
         let paths = Paths::under(root.path());
+        // A Steam account to write shortcuts to.
+        std::fs::create_dir_all(paths.steam_root.join("userdata/12345/config"))?;
         let db = Database::open(&paths.db_file())?;
         romshelf_testkit::fixtures::seed(&db)?;
         let fake_conn = FakeConnection::new(paths.settings_file());

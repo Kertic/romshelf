@@ -57,3 +57,26 @@ export function syncLine(s: SyncStatus | null, nowMs: number): { text: string; w
     warn: false,
   };
 }
+
+/** A Library row: a tile (224 px) and the gap below it (20 px). Fixed so the grid can be windowed. */
+export const ROW_HEIGHT = 244;
+/** Libraries bigger than this draw only the rows near the screen. */
+export const WINDOW_FROM = 120;
+/** Rows drawn above and below the visible ones, so focus always has a neighbour to move to. */
+export const OVERSCAN = 2;
+
+/**
+ * The rows to draw: those overlapping the visible part of the scroller, plus `OVERSCAN` either
+ * side. `gridTop` is where the grid starts inside the scroller.
+ */
+export function visibleRows(
+  scrollTop: number,
+  viewHeight: number,
+  gridTop: number,
+  rowCount: number,
+): { first: number; last: number } {
+  const top = scrollTop - gridTop;
+  const first = Math.max(0, Math.floor(top / ROW_HEIGHT) - OVERSCAN);
+  const last = Math.min(rowCount, Math.ceil((top + Math.max(viewHeight, ROW_HEIGHT)) / ROW_HEIGHT) + OVERSCAN);
+  return { first, last: Math.max(first, last) };
+}

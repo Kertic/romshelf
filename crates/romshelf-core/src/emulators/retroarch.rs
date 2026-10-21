@@ -21,6 +21,22 @@ impl RetroArch {
             .join(format!("{}.cfg", rom.id))
     }
 
+    /// This game's own remap folder (`input_remapping_directory` for its launches).
+    pub fn remap_dir(paths: &Paths, rom: &Rom) -> PathBuf {
+        RetroArch
+            .session_dir(paths)
+            .join("remaps")
+            .join(rom.id.as_str())
+    }
+
+    /// This game's controls, appended last.
+    pub fn controls_config(paths: &Paths, rom: &Rom) -> PathBuf {
+        RetroArch
+            .session_dir(paths)
+            .join("games")
+            .join(format!("{}.controls.cfg", rom.id))
+    }
+
     /// A core's file in the RetroArch Flatpak's cores folder.
     pub fn core_file(paths: &Paths, core: &str) -> PathBuf {
         paths
@@ -74,6 +90,57 @@ fn move_named_files(shared: &Path, own: &Path, rom: &Rom) -> Result<()> {
     Ok(())
 }
 
+/// What follows the ROM's name in a save or state file: `.srm`, `.rtc`, `.state1`,
+/// `.state.auto`, `.state1.png`. `None` for anything else.
+fn save_suffix(name: &str) -> Option<&str> {
+    if let Some(at) = name.rfind(".state") {
+        return Some(&name[at..]);
+    }
+    [".srm", ".rtc", ".sav", ".ldci"]
+        .iter()
+        .find(|ext| name.ends_with(*ext))
+        .map(|ext| &name[name.len() - ext.len()..])
+}
+
+/// RetroArch names saves after the ROM file, so a ROM renamed in Drive would start with no
+/// save. The game's own folder holds only its files: any under an old name move to the
+/// current one, unless a file of that kind already has the current name (then nothing is
+/// guessed and both stay).
+fn follow_rom_name(own: &Path, rom: &Rom) -> Result<()> {
+    let Some(stem) = Path::new(&rom.file_name)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+    else {
+        return Ok(());
+    };
+    let Ok(entries) = std::fs::read_dir(own) else {
+        return Ok(());
+    };
+    let names: Vec<String> = entries
+        .flatten()
+        .filter(|e| e.path().is_file())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    for name in &names {
+        let Some(suffix) = save_suffix(name) else {
+            continue;
+        };
+        let current = format!("{stem}{suffix}");
+        if *name == current || names.contains(&current) {
+            continue;
+        }
+        // Another old name with the same kind of file: unclear which is right, so none moves.
+        let rivals = names
+            .iter()
+            .filter(|n| save_suffix(n) == Some(suffix))
+            .count();
+        if rivals == 1 {
+            std::fs::rename(own.join(name), own.join(&current))?;
+        }
+    }
+    Ok(())
+}
+
 impl EmulatorAdapter for RetroArch {
     fn id(&self) -> &'static str {
         "retroarch"
@@ -117,7 +184,9 @@ impl EmulatorAdapter for RetroArch {
              sort_savefiles_enable = \"false\"\n\
              sort_savestates_enable = \"false\"\n\
              sort_savefiles_by_content_enable = \"false\"\n\
-             sort_savestates_by_content_enable = \"false\"\n",
+             sort_savestates_by_content_enable = \"false\"\n\
+             input_remap_binds_enable = \"true\"\n\
+             remap_save_on_exit = \"false\"\n",
             session.join("saves").display(),
             session.join("states").display(),
             session.join("system").display(),
@@ -134,19 +203,23 @@ impl EmulatorAdapter for RetroArch {
         let session = self.session_dir(paths);
         move_named_files(&session.join("saves"), &saves, rom)?;
         move_named_files(&session.join("states"), &states, rom)?;
+        follow_rom_name(&saves, rom)?;
+        follow_rom_name(&states, rom)?;
         let cfg = format!(
             "# Written by Romshelf for {}.\n\
              savefile_directory = \"{}\"\n\
-             savestate_directory = \"{}\"\n",
+             savestate_directory = \"{}\"\n\
+             input_remapping_directory = \"{}\"\n",
             rom.display_name,
             saves.display(),
             states.display(),
+            RetroArch::remap_dir(paths, rom).display(),
         );
         write_if_changed(&RetroArch::game_config(paths, rom), &cfg)
     }
 
     /// `flatpak run --filesystem=<ROMs>:ro org.libretro.RetroArch -L <core> --appendconfig
-    /// <Romshelf's cfg>|<the game's cfg> -f <rom>`: full screen, the game's own save folders,
+    /// <Romshelf's cfg>|<the game's cfg>|<its controls> -f <rom>`: full screen, the game's own save folders,
     /// the user's own settings otherwise. RetroArch reads `|`-separated append configs in order.
     fn launch_command(
         &self,
@@ -158,9 +231,10 @@ impl EmulatorAdapter for RetroArch {
             crate::Error::Invalid(format!("RetroArch has no core for {}.", rom.system.label()))
         })?;
         let configs = format!(
-            "{}|{}",
+            "{}|{}|{}",
             RetroArch::append_config(paths).display(),
-            RetroArch::game_config(paths, rom).display()
+            RetroArch::game_config(paths, rom).display(),
+            RetroArch::controls_config(paths, rom).display()
         );
         Ok(CommandSpec::new(
             "flatpak",
@@ -194,8 +268,22 @@ impl EmulatorAdapter for RetroArch {
         true
     }
 
-    fn write_controls(&self, _layout: &ControlLayout, _rom: &Rom) -> Result<()> {
-        Ok(())
+    /// The game's controls in their own appended config, `games/<rom-id>.controls.cfg`.
+    fn write_controls(&self, layout: &ControlLayout, rom: &Rom, paths: &Paths) -> Result<()> {
+        if let Some(core) =
+            RetroArch::core_for(rom.system).and_then(crate::controls::retroarch::core_name)
+        {
+            write_if_changed(
+                &RetroArch::remap_dir(paths, rom)
+                    .join(core)
+                    .join(format!("{core}.rmp")),
+                &crate::controls::retroarch::remap(rom.system, layout),
+            )?;
+        }
+        write_if_changed(
+            &RetroArch::controls_config(paths, rom),
+            &crate::controls::retroarch::config(rom.system, layout),
+        )
     }
 
     fn declared_actions(&self) -> Vec<DeclaredAction> {

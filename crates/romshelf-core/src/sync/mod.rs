@@ -355,6 +355,16 @@ fn upsert_file(
             }
         }
     };
+    // Renamed or moved in Drive: Romshelf's copy on the Deck follows, rather than being
+    // downloaded again under the new name.
+    if let Some(old) = existing
+        .as_ref()
+        .filter(|o| o.location != LocationState::Gone)
+    {
+        if old.file_name != f.name || old.system != system {
+            follow_rename(ctx.paths, old, system, &f.name);
+        }
+    }
     let rom = Rom {
         id,
         drive_file_id: f.id.clone(),
@@ -382,6 +392,26 @@ fn upsert_file(
         }
     }
     Ok(())
+}
+
+/// Moves the downloaded copy to the new name, unless a file is already there. A failure leaves
+/// it where it was; the storage check at start-up then treats the game as not downloaded.
+fn follow_rename(paths: &Paths, old: &Rom, system: System, new_name: &str) {
+    let (Ok(from), Ok(to)) = (
+        paths.rom_file(old.system, &old.file_name),
+        paths.rom_file(system, new_name),
+    ) else {
+        return;
+    };
+    if !from.is_file() || to.exists() {
+        return;
+    }
+    if let Some(dir) = to.parent() {
+        if std::fs::create_dir_all(dir).is_err() {
+            return;
+        }
+    }
+    let _ = std::fs::rename(&from, &to);
 }
 
 /// The derived id, or a salted one when another file already holds it.

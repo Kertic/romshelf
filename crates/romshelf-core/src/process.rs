@@ -130,6 +130,10 @@ pub trait ProcessRunner: Send + Sync {
     /// ending the game, Ctrl+C) is passed on to the program, and Romshelf keeps waiting.
     fn run_and_wait(&self, cmd: &CommandSpec) -> Result<i32>;
 
+    /// Asks the program running now to close, as a stop signal to Romshelf would (Romshelf's
+    /// own quit combination). Does nothing when none is running.
+    fn request_stop(&self) {}
+
     /// The last lines the most recent program wrote to stderr, for error reports.
     fn last_output(&self) -> Vec<String> {
         Vec::new()
@@ -205,6 +209,8 @@ impl PackageRunner for FlatpakRunner {
 #[derive(Default)]
 pub struct SystemProcessRunner {
     tail: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    /// Set by `request_stop`; cleared when a program starts.
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Lines of stderr kept for error reports.
@@ -235,6 +241,7 @@ impl ProcessRunner for SystemProcessRunner {
                 }
             })
         });
+        self.stop.store(false, std::sync::atomic::Ordering::SeqCst);
         let stop = stop_requests()?;
         // When the stop was passed on; the stop is escalated if the program doesn't close.
         let mut forwarded: Option<std::time::Instant> = None;
@@ -243,7 +250,9 @@ impl ProcessRunner for SystemProcessRunner {
             if let Some(status) = child.try_wait()? {
                 break status;
             }
-            if forwarded.is_none() && stop.load(std::sync::atomic::Ordering::SeqCst) {
+            let asked = stop.load(std::sync::atomic::Ordering::SeqCst)
+                || self.stop.load(std::sync::atomic::Ordering::SeqCst);
+            if forwarded.is_none() && asked {
                 forwarded = Some(std::time::Instant::now());
                 stop_tree(child.id(), StopLevel::Ask);
             }
@@ -267,6 +276,10 @@ impl ProcessRunner for SystemProcessRunner {
 
     fn last_output(&self) -> Vec<String> {
         self.tail.lock().map(|t| t.clone()).unwrap_or_default()
+    }
+
+    fn request_stop(&self) {
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -391,6 +404,40 @@ mod tests {
         (61626, 61615),
         (58077, 1376),
     ];
+
+    /// Romshelf's quit combination stops the running program and returns its exit.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_requested_stop_ends_the_running_program() {
+        let runner = std::sync::Arc::new(SystemProcessRunner::default());
+        let r = std::sync::Arc::clone(&runner);
+        let started = std::time::Instant::now();
+        let asker = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            r.request_stop();
+        });
+        let code = runner
+            .run_and_wait(&CommandSpec::new("sleep", &["30"]))
+            .unwrap();
+        asker.join().unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        assert_ne!(code, 0, "ended by the stop, not by finishing");
+    }
+
+    #[test]
+    fn a_stale_request_does_not_stop_the_next_program() {
+        let runner = SystemProcessRunner::default();
+        runner.request_stop();
+        let ok = if cfg!(windows) {
+            ("cmd", vec!["/C", "exit 0"])
+        } else {
+            ("true", vec![])
+        };
+        assert_eq!(
+            runner.run_and_wait(&CommandSpec::new(ok.0, &ok.1)).unwrap(),
+            0
+        );
+    }
 
     #[test]
     fn a_stop_goes_to_the_emulator_at_the_end_of_the_chain() {

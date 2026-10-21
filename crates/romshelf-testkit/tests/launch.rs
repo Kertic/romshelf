@@ -180,9 +180,10 @@ fn retroarch_gets_its_core_the_append_config_and_the_rom() {
             RetroArch::core_file(&r.paths, "mgba").display().to_string(),
             "--appendconfig".into(),
             format!(
-                "{}|{}",
+                "{}|{}|{}",
                 RetroArch::append_config(&r.paths).display(),
-                RetroArch::game_config(&r.paths, &rom).display()
+                RetroArch::game_config(&r.paths, &rom).display(),
+                RetroArch::controls_config(&r.paths, &rom).display()
             ),
             "-f".into(),
             rom_path.display().to_string(),

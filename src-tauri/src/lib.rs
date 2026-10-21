@@ -2,11 +2,15 @@
 
 mod auth_cli;
 pub mod cli;
+mod controls_cmd;
 mod emulators_cli;
 mod gamepad;
 mod library_cli;
 mod saves_cmd;
+mod settings_cmd;
 mod state;
+mod steam_cli;
+mod steam_cmd;
 mod update_cli;
 
 use clap::Parser;
@@ -61,6 +65,7 @@ pub fn run() -> i32 {
             launch_command(target)
         }
         Some(Command::Doctor { id: Some(id) }) => doctor_launch(&id),
+        Some(Command::Doctor { id: None }) => doctor_all(),
         Some(Command::Auth(cmd)) => {
             let conn = match Paths::for_app().and_then(|p| Connection::real(&p)) {
                 Ok(c) => c,
@@ -206,12 +211,27 @@ pub fn run() -> i32 {
                 }
             }
         }
-        Some(cmd) => {
-            eprintln!(
-                "romshelf {}: not implemented yet in this build.",
-                cmd.name()
-            );
-            2
+        Some(Command::Steam(cmd)) => {
+            let setup =
+                Paths::for_app().and_then(|paths| Ok((Database::open(&paths.db_file())?, paths)));
+            match setup {
+                Ok((db, paths)) => {
+                    let files = romshelf_core::steam::FsSteamFiles {
+                        steam_root: paths.steam_root.clone(),
+                    };
+                    let ctx = romshelf_core::steam::apply::SteamContext {
+                        db: &db,
+                        files: &files,
+                        paths: &paths,
+                        now: SystemClock.now(),
+                    };
+                    steam_cli::run(cmd, &ctx, &mut std::io::stdout())
+                }
+                Err(e) => {
+                    eprintln!("{}", UiError::from(e).message);
+                    1
+                }
+            }
         }
     }
 }
@@ -431,6 +451,8 @@ fn run_sync(app: &tauri::AppHandle) -> SyncStatus {
     };
     if status.state == "synced" {
         saves_cmd::flush_in_background(app);
+        controls_cmd::pull_in_background(app);
+        steam_cmd::after_sync(app);
     }
     set_sync_status(app, status.clone());
     status
@@ -444,7 +466,7 @@ fn update_ready(state: tauri::State<'_, AppState>) -> Option<String> {
 
 /// Checks for a newer build once a day, in the background, and installs it in place.
 /// Emits `update-ready` with the version when one is in place.
-fn start_update_check(app: tauri::AppHandle) {
+pub(crate) fn start_update_check(app: tauri::AppHandle) {
     let state = app.state::<AppState>();
     if state.fake {
         return;
@@ -925,6 +947,8 @@ fn launch_command(target: Target) -> i32 {
             Ok(n) => n,
             Err(e) => return failed(e),
         };
+    // View + Menu held for a second quits the game, in any emulator.
+    gamepad::watch_quit(state.process.clone(), state.paths.log_dir());
     if !needs_window {
         let result = with_launch_ctx(&state, &no_answer, |ctx| {
             launch::run(ctx, &target, &mut |_| {})
@@ -946,6 +970,56 @@ fn launch_command(target: Target) -> i32 {
         }
     };
     run_interface(state, Some(rom_id))
+}
+
+/// `romshelf doctor`: every check of the setup, with one fix for each problem. Exit 1 when
+/// something Romshelf needs is broken.
+fn doctor_all() -> i32 {
+    let state = match open_state() {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    match doctor_checks(&state) {
+        Ok(checks) => {
+            print!("{}", romshelf_core::doctor::report(&checks));
+            romshelf_core::doctor::exit_code(&checks)
+        }
+        Err(e) => {
+            eprintln!("{}", UiError::from(e).message);
+            1
+        }
+    }
+}
+
+/// Every check of the setup, for `romshelf doctor` and "Copy diagnostics".
+pub(crate) fn doctor_checks(
+    state: &AppState,
+) -> romshelf_core::Result<Vec<romshelf_core::doctor::Check>> {
+    let settings = state.connection.settings()?;
+    let signed_in = state
+        .connection
+        .status()
+        .map(|s| s.signed_in)
+        .unwrap_or(false);
+    let steam = romshelf_core::steam::FsSteamFiles {
+        steam_root: state.paths.steam_root.clone(),
+    };
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| Error::External(e.to_string()))?;
+    Ok(romshelf_core::doctor::run(
+        &romshelf_core::doctor::DoctorContext {
+            db: &db,
+            paths: &state.paths,
+            registry: &state.registry,
+            runner: state.runner.as_ref(),
+            steam: &steam,
+            account: settings.account.clone().filter(|_| signed_in),
+            layout: settings.drive.as_ref().map(|d| d.layout.clone()),
+            drive: signed_in.then_some(state.connection.drive.as_ref()),
+        },
+    ))
 }
 
 /// `romshelf doctor --id`: each step a launch would take, without doing any of it.
@@ -1001,6 +1075,9 @@ fn run_interface(state: AppState, launch: Option<String>) -> i32 {
         }
     }
     let launching = launch.is_some();
+    // A launch from Steam already watches for View + Menu (see `launch_command`); the full
+    // interface watches for games started with Play.
+    let launch_quit = !launching;
     if let Ok(mut t) = state.launch_target.lock() {
         *t = launch;
     }
@@ -1038,6 +1115,25 @@ fn run_interface(state: AppState, launch: Option<String>) -> i32 {
             saves_cmd::restore_save,
             saves_cmd::save_states,
             saves_cmd::delete_save_state,
+            controls_cmd::controls_view,
+            controls_cmd::save_controls,
+            controls_cmd::reset_controls,
+            controls_cmd::promote_count,
+            controls_cmd::promote_controls,
+            steam_cmd::steam_shortcut,
+            steam_cmd::save_shortcut,
+            steam_cmd::set_shortcut_artwork,
+            steam_cmd::set_steam_auto_add,
+            steam_cmd::steam_restart_notice,
+            steam_cmd::image_files,
+            settings_cmd::settings_view,
+            settings_cmd::set_save_versions,
+            settings_cmd::sign_out,
+            settings_cmd::change_storage,
+            settings_cmd::check_for_updates,
+            settings_cmd::diagnostics,
+            settings_cmd::transfers,
+            settings_cmd::open_steam_keyboard,
             quit
         ])
         .setup(move |app| {
@@ -1048,6 +1144,10 @@ fn run_interface(state: AppState, launch: Option<String>) -> i32 {
                 .focused(true)
                 .build()?;
             gamepad::start(app.handle().clone());
+            if launch_quit {
+                let s = app.state::<AppState>();
+                gamepad::watch_quit(s.process.clone(), s.paths.log_dir());
+            }
             // A launch window is only there to start one game.
             if !launching {
                 start_update_check(app.handle().clone());
@@ -1056,7 +1156,15 @@ fn run_interface(state: AppState, launch: Option<String>) -> i32 {
             {
                 let state = app.state::<AppState>();
                 let result = match state.db.lock() {
-                    Ok(db) => storage::reconcile(&db, &state.paths).map(|_| ()),
+                    Ok(db) => storage::reconcile(&db, &state.paths)
+                        .and_then(|_| {
+                            romshelf_core::saves::recover_interrupted(
+                                &db,
+                                &state.registry,
+                                &state.paths,
+                            )
+                        })
+                        .map(|_| ()),
                     Err(_) => Ok(()),
                 };
                 if let Err(e) = result {
