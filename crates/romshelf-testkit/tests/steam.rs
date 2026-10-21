@@ -498,3 +498,56 @@ fn romshelf_itself_can_be_in_steam_and_a_moved_install_is_followed() {
     r.db.set_setting(apply::SELF_SETTING, "0").unwrap();
     assert_eq!(apply::apply(&r.ctx(4)).unwrap().removed, 1);
 }
+
+fn layout_path(r: &Rig, key: &str) -> std::path::PathBuf {
+    r.steam.dir.path().join(format!(
+        "steamapps/common/Steam Controller Configs/{USER}/config/{key}/controller_neptune.vdf"
+    ))
+}
+
+#[test]
+fn a_layout_the_player_changed_in_steam_is_kept() {
+    // Found on the Deck (2026-10-21): every apply wrote Romshelf's template over each shortcut's
+    // layout, undoing what the player had changed in Steam's controller settings.
+    let r = Rig::new();
+    let kirby = r.game(1, "Kirby");
+    apply::set_shown(&r.db, &kirby, true).unwrap();
+    apply::apply(&r.ctx(1)).unwrap();
+    std::fs::write(
+        layout_path(&r, "kirby"),
+        "\"controller_mappings\" { \"player's own\" }",
+    )
+    .unwrap();
+    // Anything that applies again: another game shown, Romshelf added to Steam.
+    let other = r.game(2, "Tidewalker");
+    apply::set_shown(&r.db, &other, true).unwrap();
+    r.db.set_setting(apply::SELF_SETTING, "1").unwrap();
+    apply::apply(&r.ctx(2)).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(layout_path(&r, "kirby")).unwrap(),
+        "\"controller_mappings\" { \"player's own\" }"
+    );
+    // The new ones still get Romshelf's.
+    assert!(std::fs::read_to_string(layout_path(&r, "tidewalker"))
+        .unwrap()
+        .contains("key_press F9"));
+}
+
+#[test]
+fn renaming_carries_the_players_layout_to_the_new_name() {
+    let r = Rig::new();
+    let kirby = r.game(1, "Kirby");
+    apply::set_shown(&r.db, &kirby, true).unwrap();
+    apply::apply(&r.ctx(1)).unwrap();
+    std::fs::write(
+        layout_path(&r, "kirby"),
+        "\"controller_mappings\" { \"player's own\" }",
+    )
+    .unwrap();
+    apply::rename(&r.db, &kirby, "Kirby's Adventure").unwrap();
+    apply::apply(&r.ctx(2)).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(layout_path(&r, "kirby's adventure")).unwrap(),
+        "\"controller_mappings\" { \"player's own\" }"
+    );
+}
