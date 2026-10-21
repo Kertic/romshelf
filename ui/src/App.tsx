@@ -135,6 +135,25 @@ export function App() {
     backRef.current = b;
     setBackState(b);
   }, []);
+  /** B before the restart prompt opened: while it's open B is its Later, then B is put back. */
+  const backBeforeRestart = useRef<BackAction | null>(null);
+  const restartShown = useRef(false);
+  const closeRestart = useCallback(() => {
+    restartShown.current = false;
+    setRestart(null);
+    setBack(backBeforeRestart.current);
+  }, [setBack]);
+  const openRestart = useCallback(
+    (changes: number) => {
+      if (!restartShown.current) {
+        restartShown.current = true;
+        backBeforeRestart.current = backRef.current;
+        setBack({ label: "Later", run: closeRestart });
+      }
+      setRestart(changes);
+    },
+    [setBack, closeRestart],
+  );
   const reloadLibrary = useCallback(() => {
     library()
       .then(setEntries)
@@ -260,14 +279,14 @@ export function App() {
     let live = true;
     let unlisten: (() => void) | null = null;
     onSteamChanged((n) => {
-      setRestart(n);
+      openRestart(n);
       void steamRestartNotice();
     }).then((un) => (live ? (unlisten = un) : un()));
     return () => {
       live = false;
       unlisten?.();
     };
-  }, []);
+  }, [openRestart]);
 
   // Owed backups that reach Drive in the background.
   useEffect(() => {
@@ -517,9 +536,9 @@ export function App() {
     if (romId) setDialogRom(romId);
     // The prompt, once for the batch of changes just made.
     steamRestartNotice()
-      .then((pending) => pending && setRestart(Math.max(1, shortcutChanges.current)))
+      .then((pending) => pending && openRestart(Math.max(1, shortcutChanges.current)))
       .catch(() => {});
-  }, [shortcut, setBack, reloadLibrary]);
+  }, [shortcut, setBack, reloadLibrary, openRestart]);
 
   const closeControls = useCallback(() => {
     const f = controlsFor;
@@ -772,7 +791,7 @@ export function App() {
           onClose={closeTransfers}
         />
       )}
-      {restart != null && <RestartSteamDialog changes={restart} onClose={() => setRestart(null)} />}
+      {restart != null && <RestartSteamDialog changes={restart} onClose={closeRestart} />}
       {screen === "controls" && controlsError && (
         <main className="content">
           <p className="error">{controlsError}</p>
