@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LaunchUpdate, LibraryEntry, SelfTestCheck, SelfTestProbe } from "./api";
 import type { KeyHandler } from "./Controls";
-import { ButtonsStep, OfflineStep, SelfTest, report, timing } from "./SelfTest";
+import { ButtonsStep, ControlsStep, OfflineStep, SelfTest, report, timing } from "./SelfTest";
 
 const mock = vi.hoisted(() => ({
   probe: {
@@ -211,5 +211,15 @@ describe("self-test", () => {
     expect(text).toContain("Romshelf 0.1.3 self-test, 2026-10-21T12:00:00.000Z");
     expect(text).toContain("FAIL  Drive / Round trip: Romshelf couldn't reach Google.\n      Fix: Check the connection.");
     expect(text).toContain("0 passed, 0 to look at, 1 failed, 0 skipped");
+  });
+});
+
+describe("a game's own controls", () => {
+  it("with no game's own differences, offers a downloaded game on its emulator's default", async () => {
+    timing.pollMs = 5;
+    const onDefault = { ...GAME, control_differences: 0 } as LibraryEntry;
+    render(<ControlsStep entry={onDefault} onDone={() => {}} />);
+    expect(screen.getByText(/Kirby uses RetroArch's default layout/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Play Kirby" })).toBeTruthy();
   });
 });

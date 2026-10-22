@@ -239,14 +239,16 @@ function usePlay(entry: LibraryEntry | undefined) {
   return { state, ending, start, failed: ending.includes("couldn't start") };
 }
 
-function ControlsStep({ entry, onDone }: { entry: LibraryEntry; onDone: Done }) {
+export function ControlsStep({ entry, onDone }: { entry: LibraryEntry; onDone: Done }) {
   const game = usePlay(entry);
   if (game.state === "idle") {
     return (
       <>
         <p className="body-text">
-          {entry.rom.display_name}&rsquo;s controls differ from {entry.emulator}&rsquo;s default in {entry.control_differences}{" "}
-          {entry.control_differences === 1 ? "button" : "buttons"}. Play it, check they do what its Controls page says, then quit.
+          {entry.control_differences > 0
+            ? `${entry.rom.display_name}'s controls differ from ${entry.emulator}'s default in ${entry.control_differences} ${entry.control_differences === 1 ? "button" : "buttons"}.`
+            : `${entry.rom.display_name} uses ${entry.emulator}'s default layout, as you've set it.`}{" "}
+          Play it, check its buttons do what its Controls page says, then quit.
         </p>
         <div className="actions">
           <button className="button primary" data-focusable data-autofocus data-hint="Play" type="button" onClick={game.start}>
@@ -444,7 +446,12 @@ export function SelfTest({ entries, version, setBack, onBack, registerKeys, tour
   const [copied, setCopied] = useState(false);
   const [started] = useState(() => new Date());
 
-  const controlsGame = useMemo(() => entries?.find((e) => playable(e) && e.control_differences > 0), [entries]);
+  // A game with its own differences if there is one, else any downloaded game (its emulator's
+  // default may be the player's own, as Kirby's X and Y were).
+  const controlsGame = useMemo(
+    () => entries?.find((e) => playable(e) && e.control_differences > 0) ?? entries?.find(playable),
+    [entries],
+  );
   const offlineGame = useMemo(() => entries?.find(playable), [entries]);
 
   const ownBack = useCallback(() => setBack({ label: "Settings", run: onBack }), [setBack, onBack]);
@@ -507,7 +514,7 @@ export function SelfTest({ entries, version, setBack, onBack, registerKeys, tour
   // Steps with nothing to do here finish at once.
   useEffect(() => {
     if (step?.id === "controls" && !controlsGame) {
-      const t = setTimeout(() => record("skip", "No downloaded game has controls of its own."));
+      const t = setTimeout(() => record("skip", "No downloaded game to play."));
       return () => clearTimeout(t);
     }
   }, [step, controlsGame, record]);
