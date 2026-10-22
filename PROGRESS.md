@@ -48,7 +48,7 @@ Status: **built; to try on the Deck.** You asked for a button that runs the test
 
 ### On-Deck checklist
 
-- [ ] Run Settings → Run the self-test and go through the guided steps; Claude reads the report.
+- [ ] Run Settings → Run the self-test and go through the guided steps; Claude reads the report. 2026-10-21, first run: buttons (all four grips), keyboard and readability passed; 39 automatic checks passed, 0 failed. The airplane step looked stuck (its network check retried for 15 s or more each look; fixed), and the controls step skipped Kirby (its swap is in the GBA default; fixed). To run again for airplane mode and the controls step.
 
 ## After stage 10: checks and follow-ups (branch `stage-10-followups`)
 
@@ -222,8 +222,8 @@ UI tests: 172, up from 106.
 ### On-Deck checklist
 
 - [ ] Every action can be reached and completed without touching the screen.
-- [ ] Text is readable at arm's length on the Deck's screen.
-- [ ] The on-screen keyboard opens for the shortcut name field (Steam's, or ⌨), and the result is saved.
+- [x] Text is readable at arm's length on the Deck's screen. (Self-test, 2026-10-21: confirmed.)
+- [x] The on-screen keyboard opens for the shortcut name field (Steam's, or ⌨), and the result is saved. (Self-test, 2026-10-21: Steam's keyboard typed "ok" into the same text field; renaming a shortcut was confirmed in stage 8.)
 - [ ] Focus is always visible, including after dialogs close.
 - [ ] Offline: the Library opens, downloaded games play, and Drive-only actions explain why they're unavailable.
 - [ ] (From stage 8.) Kirby with your GBA default: X acts as B and Y as A, alongside A and B, and your save loads.
