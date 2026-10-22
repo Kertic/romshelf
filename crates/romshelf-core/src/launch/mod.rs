@@ -97,6 +97,9 @@ pub struct LaunchContext<'a> {
     /// Asks the user about a save conflict. `None` means no one can be asked now (a launch
     /// with no window): the launch stops with `Error::NeedsAnswer` before anything starts.
     pub ask: &'a (dyn Fn(&SaveConflict) -> Option<SaveChoice> + Sync),
+    /// Whether Google can be reached right now: one quick try, no retries. Offline, the Drive
+    /// steps around the game are skipped rather than each retried in turn.
+    pub online: &'a (dyn Fn() -> bool + Sync),
 }
 
 impl LaunchContext<'_> {
@@ -319,7 +322,16 @@ pub fn run(
     events(LaunchEvent::Step {
         step: Step::SaveCheck,
     });
-    if let Some(sc) = ctx.saves() {
+    // One quick look first: offline, every Drive call would retry for many seconds in turn.
+    let online = (ctx.online)();
+    if !online && ctx.layout.is_some() {
+        events(LaunchEvent::Notice {
+            message:
+                "Offline: playing with the save on this Deck. Its backup waits for the network."
+                    .into(),
+        });
+    }
+    if let (Some(sc), true) = (ctx.saves(), online) {
         // Backups owed from earlier games (Steam ended Romshelf, or Drive was unreachable).
         let _ = saves::flush_pending(&sc);
         check_save(ctx, &sc, &rom, events)?;
@@ -350,7 +362,8 @@ pub fn run(
     // Whatever the exit code was. The emulator has exited, so its save is complete. A failed
     // backup stays owed for the next run and never changes the exit code.
     events(LaunchEvent::Step { step: Step::Backup });
-    if let Some(sc) = ctx.saves() {
+    // Still offline after the game: the backup stays owed, without a wait.
+    if let (Some(sc), true) = (ctx.saves(), (ctx.online)()) {
         match saves::backup(&sc, &rom) {
             Ok(saves::BackupOutcome::Uploaded { .. }) => events(LaunchEvent::Notice {
                 message: format!("Backed up {}", rom.display_name),

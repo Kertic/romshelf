@@ -36,6 +36,9 @@ struct Device {
     space: FixedSpace,
     cancel: AtomicBool,
     clock: FakeClock,
+    /// What the launch's quick "can Google be reached?" check answers.
+    online: Arc<AtomicBool>,
+    reachable: Box<dyn Fn() -> bool + Sync>,
 }
 
 fn shared_drive() -> (Arc<FakeDrive>, DriveLayout) {
@@ -51,6 +54,7 @@ fn no_answer(_: &SaveConflict) -> Option<SaveChoice> {
 impl Device {
     fn new(name: &'static str, drive: &Arc<FakeDrive>, layout: &DriveLayout) -> Device {
         let dir = tempfile::tempdir().unwrap();
+        let online = Arc::new(AtomicBool::new(true));
         let paths = Paths::under(dir.path()).with_storage_root(&dir.path().join("Romshelf"));
         for core in RetroArch.required_cores() {
             let f = RetroArch::core_file(&paths, core);
@@ -71,6 +75,8 @@ impl Device {
             space: FixedSpace::new(1 << 40),
             cancel: AtomicBool::new(false),
             clock: FakeClock::at(1_800_000_000),
+            online: online.clone(),
+            reachable: Box::new(move || online.load(std::sync::atomic::Ordering::SeqCst)),
         }
     }
 
@@ -111,6 +117,7 @@ impl Device {
             max_attempts: 3,
             device: self.name,
             ask,
+            online: self.reachable.as_ref(),
         }
     }
 
@@ -1092,4 +1099,52 @@ fn offline_a_downloaded_game_launches_with_no_network_at_any_step() {
         d.db.lock().unwrap().save_sync(&rom.id).unwrap().pending,
         "the backup is queued"
     );
+}
+
+#[test]
+fn offline_at_the_start_goes_straight_to_the_game_and_leaves_the_backup_owed() {
+    // Found on the Deck (2026-10-22): offline, each Drive call before the game retried for about
+    // sixteen seconds, so a launch seemed to do nothing until the network came back.
+    let (drive, layout) = shared_drive();
+    let a = Device::new("deck-a", &drive, &layout);
+    let b = Device::new("deck-b", &drive, &layout);
+    let rom = a.ready(System::Gba, "Kirby.gba");
+    a.play(&rom, "Kirby.srm", b"played on a").0.unwrap();
+    let rom_b = b.ready(System::Gba, "Kirby.gba");
+    b.write_save(&rom_b, "Kirby.srm", b"b's own");
+    // Google can't be reached from B. (The fake Drive itself still answers, so anything that
+    // used it anyway would show: a restore of A's save, or a new backup.)
+    b.online.store(false, std::sync::atomic::Ordering::SeqCst);
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let (dir, seen2) = (b.save_dir(&rom_b), seen.clone());
+    b.process.during_run(move |_| {
+        *seen2.lock().unwrap() = std::fs::read(dir.join("Kirby.srm")).unwrap_or_default();
+    });
+    let mut events = Vec::new();
+    let code = launch::run(
+        &b.launch_ctx(&no_answer),
+        &Target::Id(rom_b.id.to_string()),
+        &mut |e| events.push(e),
+    );
+    assert_eq!(code.unwrap(), 0);
+    assert_eq!(
+        *seen.lock().unwrap(),
+        b"b's own",
+        "Drive's save wasn't fetched"
+    );
+    assert!(events.contains(&LaunchEvent::Notice {
+        message: "Offline: playing with the save on this Deck. Its backup waits for the network."
+            .into()
+    }));
+    assert_eq!(
+        a.versions(&rom).len(),
+        1,
+        "no backup was tried after the game"
+    );
+    assert!(b.db.lock().unwrap().save_sync(&rom_b.id).unwrap().pending);
+
+    // Back online: the owed backup goes up.
+    b.online.store(true, std::sync::atomic::Ordering::SeqCst);
+    let flushed = saves::flush_pending(&b.saves());
+    assert!(matches!(flushed[0].1, Ok(BackupOutcome::Uploaded { .. })));
 }

@@ -83,6 +83,7 @@ impl Rig {
             max_attempts: 3,
             device: "test-deck",
             ask: &no_answer,
+            online: &|| true,
         }
     }
 

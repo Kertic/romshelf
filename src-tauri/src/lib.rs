@@ -777,8 +777,18 @@ fn with_launch_ctx<T>(
         max_attempts: DOWNLOAD_ATTEMPTS,
         device: &state.device,
         ask,
+        online: if state.fake {
+            &|| true
+        } else {
+            &google_reachable
+        },
     };
     f(&ctx)
+}
+
+/// Google answers right now: one connection, at most three seconds, no retries.
+pub(crate) fn google_reachable() -> bool {
+    selftest_cmd::reachable("www.googleapis.com", 443, Duration::from_secs(3))
 }
 
 /// A launch with no window can't ask about a save conflict.

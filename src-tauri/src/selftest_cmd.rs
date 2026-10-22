@@ -180,7 +180,7 @@ pub(crate) fn reachable(host: &str, port: u16, timeout: std::time::Duration) -> 
 pub(crate) async fn selftest_probe(app: tauri::AppHandle) -> Result<Probe, UiError> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let online = reachable("www.googleapis.com", 443, std::time::Duration::from_secs(3));
+        let online = super::google_reachable();
         let pending_backups = state.db.lock().map_err(internal)?.pending_saves()?.len();
         let root = state.paths.storage_root();
         let launches = std::fs::read_to_string(state.paths.log_dir().join("launch.log"))
