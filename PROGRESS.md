@@ -1,5 +1,38 @@
 # Progress
 
+## Stage 11: PS2 with PCSX2 (branch `stage-11-ps2`, on top of `self-test`)
+
+Status: **in progress.** No stage file covers this; the brief says "PCSX2 follows the same pattern later". This follows Dolphin's pattern.
+
+### Plan
+
+- **Adapter:** `Pcsx2` for the `ps2` system (`.iso`, `.chd`), as the Flatpak `net.pcsx2.PCSX2` (LINKS.md, checked).
+- **Its own data folder,** so a PCSX2 the user already has is never touched. PCSX2's `-datapath` puts every setting and folder under the folder it names, with settings in `inis/PCSX2.ini` (from PCSX2's source, `Pcsx2Config.cpp`).
+- **The launch:**
+  - `flatpak run --filesystem=<roms>:ro net.pcsx2.PCSX2 -datapath <ours> -batch -nogui -fullscreen -- <game>`.
+  - `-batch`: PCSX2 quits when the game does.
+  - `-nogui`: no main window.
+  - `--`: the path is taken whole.
+  - The options are from PCSX2's source, `QtHost.cpp`.
+- **BIOS:** a PS2 BIOS is required, and its file name depends on the console model (`SCPH-70012.bin`, …). Setup copies every `.bin` from Drive's `Emulation/bios/ps2/`, and `[Filenames] BIOS` names the first. Romshelf never includes one; you dump your own.
+- **Saves:** one memory card per game, in the game's own folder (`[Folders] MemoryCards`, `[MemoryCards] Slot1_Filename = Mcd001.ps2`). Backups, restores and conflicts work as for Dolphin's per-game folders.
+- **Save states:** a folder per game (`[Folders] Savestates`), mirrored to Drive like RetroArch's.
+- **Controls:**
+  - DualShock 2 targets: Cross, Circle, Square, Triangle, L1/R1/L2/R2/L3/R3, Start, Select, the D-pad and both sticks.
+  - Default by position: the Deck's A is Cross.
+  - Written to `[Pad1]` as `SDL-0/FaceSouth` and so on.
+  - Hotkeys in `[Hotkeys]` on the grips (`Keyboard/F9` to `F12`): L4 `HoldTurbo`, L5 `SaveStateToSlot`, R5 `LoadStateFromSlot`, plus `ShutdownVM` to quit.
+  - Names from PCSX2's source (`PadDualshock2.cpp`, `Hotkeys.cpp`, `SDLInputSource.cpp`, `InputManager.cpp`).
+- **First run:** the settings file Romshelf writes marks PCSX2's setup wizard as done, so it never appears.
+
+### Confirm (on the Deck)
+
+- The pad section is named `[Pad1]`, and its type is `Type = DualShock2`.
+- The key that skips the setup wizard.
+- PCSX2 creates a missing memory card file itself.
+- The Steam virtual gamepad is `SDL-0` under the Flatpak.
+- `-batch -nogui -fullscreen -- <file>` starts the game straight away, and closing it ends PCSX2.
+
 ## Self-test (branch `self-test`, on top of `stage-10-followups`)
 
 Status: **built; to try on the Deck.** You asked for a button that runs the tests for you. It's **Settings → Run the self-test**.
