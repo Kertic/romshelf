@@ -51,6 +51,7 @@ import {
   type EmulatorView,
   type ConnectionStatus,
   type LibraryEntry,
+  type SelfTestCheck,
   type SaveChoice,
   type ControlsView,
   type ShortcutView,
@@ -69,14 +70,16 @@ import { LaunchWindow, type LaunchState } from "./LaunchWindow";
 import { Controls, type KeyHandler } from "./Controls";
 import { RestartSteamDialog, SteamShortcut } from "./SteamShortcut";
 import { Settings } from "./Settings";
+import { SelfTest } from "./SelfTest";
 import { Transfers } from "./Transfers";
+import { audit } from "./uiaudit";
 import { Home } from "./Home";
 import type { Button } from "./input";
 import { nextTab } from "./library";
 import { RomPage, type SaveActions, type View } from "./RomActions";
 import { useInput } from "./useInput";
 
-type Screen = "loading" | "first-run" | "home" | "emulators" | "launch" | "controls" | "shortcut" | "settings" | "spike";
+type Screen = "loading" | "first-run" | "home" | "emulators" | "launch" | "controls" | "shortcut" | "settings" | "spike" | "selftest";
 
 const HOLD_TO_LEAVE_MS = 1000;
 
@@ -123,6 +126,8 @@ export function App() {
   const shortcuts = useRef<Partial<Record<"menu" | "view" | "y", () => void>>>({});
   const [settings, setSettings] = useState<SettingsView | null>(null);
   const [transferRows, setTransferRows] = useState<TransferRow[] | null>(null);
+  /** The self-test stays mounted (hidden) while its tour shows the other screens. */
+  const [selfTestOpen, setSelfTestOpen] = useState(false);
   const registerKeys = useCallback((h: KeyHandler | null) => {
     keyHandler.current = h;
   }, []);
@@ -430,9 +435,18 @@ export function App() {
   }, [syncHint]);
   // A closed dialog hands focus back, so something is always highlighted.
   useEffect(() => watchDialogs(), []);
+  // A screen that opens (or whose content arrives) with nothing focused starts on its main
+  // action, or its first control, so the first press does something.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (!focusLost()) return;
+      if (restoreFocus(document.querySelector("[data-dialog]") ?? document)) syncHint();
+    }, 50);
+    return () => clearTimeout(t);
+  }, [screen, settings, shortcut, controls, emulatorList, syncHint]);
   const onPress = useCallback(
     (b: Button, from: "pad" | "keyboard") => {
-      if (screen === "controls" && keyHandler.current?.(b, from)) return;
+      if ((screen === "controls" || screen === "selftest") && keyHandler.current?.(b, from)) return;
       // Focus went away (its element was removed, or a dialog closed): the first press finds it.
       if (focusLost() && b !== "b" && b !== "menu" && b !== "view") {
         restoreFocus(document.querySelector("[data-dialog]") ?? document);
@@ -609,6 +623,79 @@ export function App() {
     }, 2000);
     return () => clearInterval(t);
   }, [panelOpen]);
+  const openSelfTest = useCallback(() => {
+    setSelfTestOpen(true);
+    setScreen("selftest");
+  }, []);
+  const closeSelfTest = useCallback(() => {
+    setSelfTestOpen(false);
+    openSettings();
+  }, [openSettings]);
+  /**
+   * The self-test's tour: each screen shown in turn, with a game that's on the Deck, and checked
+   * as it is (`audit`). Changes nothing: no saves, downloads or Steam writes.
+   */
+  const tour = useCallback(async (): Promise<SelfTestCheck[]> => {
+    const out: SelfTestCheck[] = [];
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    // The self-test's own title is in the page too, hidden while the tour runs.
+    const h1 = () => [...document.querySelectorAll("h1")].find((h) => !h.closest("[hidden]"))?.textContent ?? "";
+    const shown = async (title: string) => {
+      for (let i = 0; i < 50 && h1() !== title; i++) await wait(100);
+      // Let each screen put focus where it starts.
+      await wait(500);
+      return h1() === title;
+    };
+    const look = async (name: string, title: string) => {
+      out.push(
+        (await shown(title))
+          ? audit(name)
+          : { group: "Interface", name, outcome: "fail", detail: `The screen didn't open (showed "${h1()}").`, fix: "Send this report." },
+      );
+    };
+    const entry = entries?.find((e) => e.rom.location.state === "on_deck") ?? entries?.[0];
+    try {
+      setDialogRom(null);
+      setTab("all");
+      setScreen("home");
+      await look("Library", "All systems");
+      openTransfers();
+      for (let i = 0; i < 30 && !document.querySelector('[role="dialog"][aria-label="Transfers"]'); i++) await wait(100);
+      await wait(300);
+      out.push(audit("Transfers"));
+      closeTransfers();
+      await wait(400);
+      out.push(
+        focusLost()
+          ? { group: "Interface", name: "Closing a panel", outcome: "fail", detail: "Closing Transfers left nothing focused.", fix: "Send this report." }
+          : { group: "Interface", name: "Closing a panel", outcome: "pass", detail: "Focus went back to the Transfers button.", fix: null },
+      );
+      if (entry) {
+        setDialogRom(entry.rom.id);
+        await look("ROM page", entry.rom.display_name);
+        if (entry.emulator_id) {
+          openControls(entry.emulator_id, entry.rom.system, entry.rom.id, "home");
+          await look("Controls", "Controls");
+        }
+        openShortcut(entry.rom.id);
+        await look("Steam shortcut", "Steam shortcut");
+        setShortcut(null);
+      }
+      openEmulators();
+      await look("Emulators", "Emulators");
+      openSettings();
+      await look("Settings", "Settings");
+    } catch (e) {
+      out.push({ group: "Interface", name: "Tour", outcome: "fail", detail: `It stopped: ${String(e)}`, fix: "Send this report." });
+    } finally {
+      setTransferRows(null);
+      setShortcut(null);
+      setControlsFor(null);
+      setDialogRom(null);
+      setScreen("selftest");
+    }
+    return out;
+  }, [entries, openTransfers, closeTransfers, openControls, openShortcut, openEmulators, openSettings]);
   /** Y: back up the save of the game on screen, or the focused tile's. */
   const backupFocused = useCallback(() => {
     const romId = dialogRom ?? (document.activeElement as HTMLElement | null)?.dataset?.romId ?? null;
@@ -779,9 +866,23 @@ export function App() {
               await navigator.clipboard.writeText(text);
             },
             openGamepadTest: () => setScreen("spike"),
+            openSelfTest,
             quit: () => void quit(),
           }}
         />
+      )}
+      {selfTestOpen && (
+        <div className="selftest-host" hidden={screen !== "selftest"}>
+          <SelfTest
+            entries={entries}
+            version={info?.version ?? "dev"}
+            setBack={setBack}
+            onBack={closeSelfTest}
+            registerKeys={registerKeys}
+            tour={tour}
+            copy={(text) => navigator.clipboard.writeText(text)}
+          />
+        </div>
       )}
       {transferRows && (
         <Transfers

@@ -117,6 +117,25 @@ describe("flows with the gamepad alone", () => {
     expect(document.activeElement?.closest("[data-dialog]")).toBeNull();
   });
 
+  it("Settings and the Steam shortcut screen open with focus on a control", async () => {
+    await start();
+    act(() => screen.getByRole("button", { name: "Settings" }).focus());
+    await press("Enter");
+    await settle();
+    expect(heading()).toBe("Settings");
+    expect(document.activeElement).not.toBe(document.body);
+    await press("Escape");
+    await settle();
+    act(() => tile("Tidewalker").focus());
+    await press("Enter");
+    await settle();
+    act(() => screen.getByRole("button", { name: "Edit shortcut…" }).focus());
+    await press("Enter");
+    await settle();
+    expect(heading()).toBe("Steam shortcut");
+    expect(document.activeElement?.textContent).toBe("Save shortcut");
+  });
+
   it("closing Transfers puts focus back on the Transfers button", async () => {
     await start();
     await settle();

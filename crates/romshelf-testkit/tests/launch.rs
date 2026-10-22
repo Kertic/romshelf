@@ -83,6 +83,7 @@ impl Rig {
             max_attempts: 3,
             device: "test-deck",
             ask: &no_answer,
+            online: &|| true,
         }
     }
 
@@ -383,11 +384,15 @@ fn a_game_gone_from_drive_is_a_clear_error() {
 }
 
 #[test]
-fn a_system_without_an_emulator_or_an_unrecognized_file_is_refused() {
+fn a_ps2_game_without_a_bios_or_an_unrecognized_file_is_refused() {
     let r = Rig::new();
+    // PCSX2 needs a PS2 BIOS, which only the player can provide.
     let ps2 = r.rom(System::Ps2, "Nine Orchards.iso");
     let err = r.launch(id(&ps2)).0.unwrap_err();
-    assert_eq!(err.to_string(), "Romshelf can't run PS2 games yet.");
+    assert_eq!(
+        err.to_string(),
+        "Missing BIOS: a PS2 BIOS file (.bin). Add it to Drive's Emulation/bios/ps2 folder."
+    );
     let zip = r.rom(System::Gamecube, "Shadow.zip");
     let err = r.launch(id(&zip)).0.unwrap_err();
     assert!(err.to_string().contains("Dolphin can't run"), "{err}");
@@ -491,4 +496,24 @@ fn every_launch_prepares_the_session_folder_again() {
     std::fs::remove_dir_all(Dolphin.session_dir(&r.paths)).unwrap();
     r.launch(id(&rom)).0.unwrap();
     assert!(Dolphin::config_dir(&r.paths).join("GCPadNew.ini").is_file());
+}
+
+#[test]
+fn the_runner_says_a_game_is_running_only_while_it_runs() {
+    use romshelf_core::process::{CommandSpec, ProcessRunner};
+    let runner = std::sync::Arc::new(FakeProcessRunner::default());
+    runner.push_exit(0, std::time::Duration::from_millis(300));
+    assert!(!runner.is_running());
+    let r = std::sync::Arc::clone(&runner);
+    let game = std::thread::spawn(move || {
+        r.run_and_wait(&CommandSpec {
+            program: "flatpak".into(),
+            args: vec![],
+            env: vec![],
+        })
+    });
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert!(runner.is_running(), "while the game runs");
+    game.join().unwrap().unwrap();
+    assert!(!runner.is_running(), "after it ends");
 }

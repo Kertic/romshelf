@@ -103,6 +103,8 @@ export interface AppInfo {
 export interface GilrsSnapshot {
   pads: { id: number; name: string; pressed: string[]; axes: Record<string, number> }[];
   last_event: string;
+  /** A game is running: the pad is the game's, and Romshelf ignores it (both paths). */
+  blocked?: boolean;
 }
 
 export const inTauri = (): boolean => isTauri();
@@ -450,16 +452,16 @@ function browserPreviewLibrary(): LibraryEntry[] {
     },
     system_label: label,
     system_colour: colour,
-    emulator: system === "gamecube" ? "Dolphin" : system === "ps2" ? null : "RetroArch",
-    emulator_id: system === "gamecube" ? "dolphin" : system === "ps2" ? null : "retroarch",
+    emulator: system === "gamecube" ? "Dolphin" : system === "ps2" ? "PCSX2" : "RetroArch",
+    emulator_id: system === "gamecube" ? "dolphin" : system === "ps2" ? "pcsx2" : "retroarch",
     core: system === "snes" ? "snes9x" : system === "gba" ? "mgba" : null,
-    emulator_installed: system !== "gamecube",
+    emulator_installed: system !== "gamecube" && system !== "ps2",
     emulator_ready: system !== "gamecube" && system !== "ps2",
     actions:
       system === "gamecube"
         ? [{ id: "memory_cards", label: "Memory cards" }, { id: "save_states", label: "Save states" }, { id: "texture_packs", label: "Texture packs" }]
         : system === "ps2"
-          ? []
+          ? [{ id: "memory_cards", label: "Memory cards" }, { id: "save_states", label: "Save states" }]
           : [{ id: "save_states", label: "Save states" }, { id: "cheats", label: "Cheats" }, { id: "shaders", label: "Shaders" }],
     in_steam,
     save: {
@@ -469,7 +471,7 @@ function browserPreviewLibrary(): LibraryEntry[] {
       pending: false,
       last_error: null,
     },
-    keeps_states: system !== "gamecube" && system !== "ps2",
+    keeps_states: system !== "gamecube",
     control_differences: system === "gba" ? 1 : 0,
   }));
 }
@@ -746,4 +748,61 @@ export async function transfers(): Promise<TransferRow[]> {
 /** Asks Steam to show its on-screen keyboard. */
 export async function openSteamKeyboard(): Promise<void> {
   if (inTauri()) await invoke("open_steam_keyboard");
+}
+
+/** One self-test check: the core's (`romshelf_core::selftest::Check`) and the interface's. */
+export interface SelfTestCheck {
+  group: string;
+  name: string;
+  outcome: "pass" | "warn" | "fail" | "skip";
+  detail: string;
+  fix: string | null;
+}
+
+const PREVIEW_CHECKS: SelfTestCheck[] = [
+  { group: "Setup", name: "Google account", outcome: "pass", detail: "signed in as player@example.com", fix: null },
+  { group: "Steam", name: "Tidewalker", outcome: "pass", detail: "Launches gba-e2bb15b4; artwork and Steam Input layout in place.", fix: null },
+  { group: "Drive", name: "Round trip", outcome: "pass", detail: "Sent 4 MB up and back; resumed after a dropped connection; checksums matched.", fix: null },
+];
+
+/** Runs every check Romshelf can do by itself; `onCheck` hears each as it finishes. */
+export async function selftestRun(onCheck: (c: SelfTestCheck) => void): Promise<SelfTestCheck[]> {
+  if (!inTauri()) {
+    PREVIEW_CHECKS.forEach(onCheck);
+    return PREVIEW_CHECKS;
+  }
+  const unlisten = await listen<SelfTestCheck>("selftest-check", (e) => onCheck(e.payload));
+  try {
+    return await invoke<SelfTestCheck[]>("selftest_run");
+  } finally {
+    unlisten();
+  }
+}
+
+/** What the guided steps watch. */
+export interface SelfTestProbe {
+  online: boolean;
+  pending_backups: number;
+  storage_available: boolean;
+  storage_removable: boolean;
+  storage_root: string;
+  launches: number;
+}
+
+export async function selftestProbe(): Promise<SelfTestProbe> {
+  if (!inTauri()) {
+    return { online: true, pending_backups: 0, storage_available: true, storage_removable: false, storage_root: "~/Romshelf", launches: 0 };
+  }
+  return invoke<SelfTestProbe>("selftest_probe");
+}
+
+/** Backs up owed saves now. */
+export async function selftestFlush(): Promise<void> {
+  if (inTauri()) await invoke("selftest_flush");
+}
+
+/** Saves the report; where it went. */
+export async function selftestSave(text: string, json: unknown): Promise<string> {
+  if (!inTauri()) return "(browser preview: not saved)";
+  return invoke<string>("selftest_save", { text, json });
 }

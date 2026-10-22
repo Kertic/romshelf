@@ -119,6 +119,8 @@ pub struct FakeProcessRunner {
     stop: std::sync::atomic::AtomicBool,
     /// How many stops were asked for.
     pub stops: std::sync::atomic::AtomicUsize,
+    /// While a "program" runs.
+    running: std::sync::atomic::AtomicBool,
 }
 
 type RunHook = Box<dyn FnMut(&CommandSpec) + Send>;
@@ -168,15 +170,23 @@ impl ProcessRunner for FakeProcessRunner {
             .pop_front()
             .unwrap_or((0, Duration::ZERO));
         self.stop.store(false, Ordering::SeqCst);
+        self.running.store(true, Ordering::SeqCst);
         let until = std::time::Instant::now() + delay;
+        let mut code = code;
         while std::time::Instant::now() < until {
             if self.stop.load(Ordering::SeqCst) {
                 // Ended by the stop, as SIGTERM would.
-                return Ok(143);
+                code = 143;
+                break;
             }
             std::thread::sleep(Duration::from_millis(10).min(delay));
         }
+        self.running.store(false, Ordering::SeqCst);
         Ok(code)
+    }
+
+    fn is_running(&self) -> bool {
+        self.running.load(Ordering::SeqCst)
     }
 }
 

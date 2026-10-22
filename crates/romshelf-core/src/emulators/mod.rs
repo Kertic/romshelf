@@ -1,10 +1,12 @@
 //! Emulator adapters and the registry that maps systems to them.
 
 mod dolphin;
+mod pcsx2;
 mod retroarch;
 pub mod setup;
 
 pub use dolphin::Dolphin;
+pub use pcsx2::Pcsx2;
 pub use retroarch::RetroArch;
 
 use crate::model::{Binding, Rom, System};
@@ -50,8 +52,13 @@ impl DeclaredAction {
 /// A BIOS file an emulator needs (or can use) for a system.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BiosFile {
+    /// The file's name, or for `any_of` what to call it ("a PS2 BIOS file (.bin)").
     pub name: String,
     pub required: bool,
+    /// Any file with this extension will do, whatever its name: a PS2 BIOS is named after the
+    /// console model it came from (`SCPH-70012.bin`).
+    #[serde(default)]
+    pub extension: Option<String>,
 }
 
 impl BiosFile {
@@ -59,6 +66,7 @@ impl BiosFile {
         BiosFile {
             name: name.into(),
             required: true,
+            extension: None,
         }
     }
 
@@ -66,6 +74,16 @@ impl BiosFile {
         BiosFile {
             name: name.into(),
             required: false,
+            extension: None,
+        }
+    }
+
+    /// Every file ending `.<extension>` (in any case), at least one of them required.
+    pub fn any_of(extension: &str, label: &str) -> BiosFile {
+        BiosFile {
+            name: label.into(),
+            required: true,
+            extension: Some(extension.into()),
         }
     }
 }
@@ -154,7 +172,7 @@ pub struct Registry {
 impl Default for Registry {
     fn default() -> Registry {
         Registry {
-            adapters: vec![Box::new(RetroArch), Box::new(Dolphin)],
+            adapters: vec![Box::new(RetroArch), Box::new(Dolphin), Box::new(Pcsx2)],
         }
     }
 }

@@ -14,6 +14,8 @@ export interface SettingsActions {
   copy: (text: string) => Promise<void>;
   /** The gamepad test from stage 0, and quitting Romshelf. */
   openGamepadTest?: () => void;
+  /** Everything Romshelf can check by itself, then a few guided steps; saves a report. */
+  openSelfTest?: () => void;
   quit?: () => void;
 }
 
@@ -138,6 +140,7 @@ export function Settings({ view, actions, onBack, setBack, reload }: Props) {
             <input
               type="checkbox"
               data-focusable
+              data-hint="Toggle"
               checked={view.auto_add}
               onChange={(e) => void run("steam", () => actions.setAutoAdd(e.target.checked))}
             />
@@ -185,6 +188,11 @@ export function Settings({ view, actions, onBack, setBack, reload }: Props) {
             >
               Copy diagnostics
             </button>
+            {actions.openSelfTest && (
+              <button className="button outline" data-focusable data-hint="Run" type="button" onClick={actions.openSelfTest}>
+                Run the self-test
+              </button>
+            )}
             {actions.openGamepadTest && (
               <button className="button outline" data-focusable data-hint="Open" type="button" onClick={actions.openGamepadTest}>
                 Gamepad test

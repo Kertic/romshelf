@@ -19,6 +19,10 @@ pub enum Command {
     Doctor {
         #[arg(long)]
         id: Option<String>,
+        /// Run the full self-test (Settings → Run the self-test, without its guided steps) and
+        /// save the report to logs/selftest/latest.txt.
+        #[arg(long, conflicts_with = "id")]
+        selftest: bool,
     },
     /// Google sign-in.
     #[command(subcommand)]
@@ -159,12 +163,24 @@ mod tests {
         assert_eq!(parse(&["sync"]).unwrap().command, Some(Command::Sync));
         assert_eq!(
             parse(&["doctor"]).unwrap().command,
-            Some(Command::Doctor { id: None })
+            Some(Command::Doctor {
+                id: None,
+                selftest: false
+            })
         );
+        assert_eq!(
+            parse(&["doctor", "--selftest"]).unwrap().command,
+            Some(Command::Doctor {
+                id: None,
+                selftest: true
+            })
+        );
+        assert!(parse(&["doctor", "--selftest", "--id", "x"]).is_err());
         assert_eq!(
             parse(&["doctor", "--id", "snes-00000001"]).unwrap().command,
             Some(Command::Doctor {
-                id: Some("snes-00000001".into())
+                id: Some("snes-00000001".into()),
+                selftest: false
             })
         );
         for (args, expected) in [

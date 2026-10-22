@@ -76,8 +76,9 @@ jobs:
       - name: End-to-end tests
         timeout-minutes: 20
         env:
-          # No Linux baselines yet: this run writes them (in the artifact below) to review and commit.
-          ROMSHELF_E2E_UPDATE: ${{ hashFiles('e2e/screens/linux/*.png') == '' && '1' || '0' }}
+          # New baselines (in the artifact below, to review and commit) when there are none yet, or
+          # when the commit message says [update screens] because a screen changed on purpose.
+          ROMSHELF_E2E_UPDATE: ${{ (hashFiles('e2e/screens/linux/*.png') == '' || contains(github.event.head_commit.message, '[update screens]')) && '1' || '0' }}
         run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npm --prefix e2e test
 
       - name: End-to-end screenshots

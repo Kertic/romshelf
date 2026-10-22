@@ -2,9 +2,9 @@
 
 use gilrs::{Axis, Button, EventType, Gilrs};
 use serde::Serialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Serialize, Clone, PartialEq)]
 struct Pad {
@@ -18,6 +18,45 @@ struct Pad {
 struct Snapshot {
     pads: Vec<Pad>,
     last_event: String,
+    /// A game is running: the pad is the game's, so the interface hears nothing from it.
+    blocked: bool,
+}
+
+/// What Romshelf may act on from a pad. Nothing while a game runs: Romshelf reads the pad
+/// whichever window has focus, so a press meant for the game would otherwise land on whatever
+/// Romshelf has focused (found on the Deck, 2026-10-21). After the game, a button still held
+/// from it counts only once released, so the press that closed the game presses nothing here.
+fn gate(
+    pressed: Vec<&'static str>,
+    blocked: bool,
+    held_over: &mut BTreeSet<&'static str>,
+) -> Vec<&'static str> {
+    if blocked {
+        held_over.extend(pressed);
+        return Vec::new();
+    }
+    held_over.retain(|b| pressed.contains(b));
+    pressed
+        .into_iter()
+        .filter(|b| !held_over.contains(b))
+        .collect()
+}
+
+/// A game is running: one this Romshelf started, or one a Steam shortcut started in another
+/// Romshelf (which holds the launch lock). A launch window's own lock doesn't count until its
+/// emulator starts, so a save question before the game can still be answered.
+fn game_running(app: &AppHandle) -> bool {
+    let Some(state) = app.try_state::<crate::state::AppState>() else {
+        return false;
+    };
+    if state.process.is_running() {
+        return true;
+    }
+    let other = std::fs::read_to_string(state.paths.launch_lock())
+        .ok()
+        .and_then(|t| t.trim().parse::<u32>().ok())
+        .is_some_and(|pid| pid != std::process::id());
+    other && romshelf_core::launch::game_running(&state.paths)
 }
 
 /// Same names as the front end's `Button` type.
@@ -73,26 +112,45 @@ const AXES: [(Axis, &str); 6] = [
     (Axis::RightZ, "right_z"),
 ];
 
-fn snapshot(gilrs: &Gilrs, last_event: &str) -> Snapshot {
+fn snapshot(
+    gilrs: &Gilrs,
+    last_event: &str,
+    blocked: bool,
+    held_over: &mut HashMap<usize, BTreeSet<&'static str>>,
+) -> Snapshot {
     let pads = gilrs
         .gamepads()
-        .map(|(id, pad)| Pad {
-            id: usize::from(id),
-            name: pad.name().to_string(),
-            pressed: BUTTONS
+        .map(|(id, pad)| {
+            let id = usize::from(id);
+            let pressed = BUTTONS
                 .iter()
                 .filter(|b| pad.is_pressed(**b))
                 .filter_map(|b| button_name(*b))
-                .collect(),
-            axes: AXES
-                .iter()
-                .map(|(a, n)| (*n, (pad.value(*a) * 100.0).round() / 100.0))
-                .collect(),
+                .collect();
+            Pad {
+                id,
+                name: pad.name().to_string(),
+                pressed: gate(pressed, blocked, held_over.entry(id).or_default()),
+                axes: AXES
+                    .iter()
+                    .map(|(a, n)| {
+                        (
+                            *n,
+                            if blocked {
+                                0.0
+                            } else {
+                                (pad.value(*a) * 100.0).round() / 100.0
+                            },
+                        )
+                    })
+                    .collect(),
+            }
         })
         .collect();
     Snapshot {
         pads,
         last_event: last_event.to_string(),
+        blocked,
     }
 }
 
@@ -108,7 +166,14 @@ pub fn start(app: AppHandle) {
         };
         let mut last = String::new();
         let mut sent: Option<Snapshot> = None;
+        let mut held_over = HashMap::new();
+        let mut blocked = false;
+        let mut checked = std::time::Instant::now() - Duration::from_secs(1);
         loop {
+            if checked.elapsed() >= Duration::from_millis(100) {
+                blocked = game_running(&app);
+                checked = std::time::Instant::now();
+            }
             while let Some(ev) = gilrs.next_event() {
                 last = match ev.event {
                     EventType::ButtonPressed(b, _) => format!("{b:?} pressed"),
@@ -118,7 +183,7 @@ pub fn start(app: AppHandle) {
                     _ => continue,
                 };
             }
-            let snap = snapshot(&gilrs, &last);
+            let snap = snapshot(&gilrs, &last, blocked, &mut held_over);
             if sent.as_ref() != Some(&snap) {
                 let _ = app.emit("gilrs", &snap);
                 sent = Some(snap);
@@ -182,4 +247,29 @@ pub fn watch_quit(
             std::thread::sleep(Duration::from_millis(20));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nothing_reaches_romshelf_while_a_game_runs() {
+        let mut held = BTreeSet::new();
+        assert_eq!(gate(vec!["a"], true, &mut held), Vec::<&str>::new());
+        assert_eq!(gate(vec!["a", "down"], true, &mut held), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn a_button_held_from_the_game_counts_only_once_released() {
+        let mut held = BTreeSet::new();
+        gate(vec!["a"], true, &mut held);
+        // The game ends with A still down: not a press here.
+        assert_eq!(gate(vec!["a"], false, &mut held), Vec::<&str>::new());
+        // Another button is fine at once.
+        assert_eq!(gate(vec!["a", "b"], false, &mut held), vec!["b"]);
+        // A released, then pressed again: now it counts.
+        assert_eq!(gate(vec![], false, &mut held), Vec::<&str>::new());
+        assert_eq!(gate(vec!["a"], false, &mut held), vec!["a"]);
+    }
 }

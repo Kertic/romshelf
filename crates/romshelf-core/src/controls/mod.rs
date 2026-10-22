@@ -7,6 +7,7 @@ pub mod defaults;
 pub mod dolphin;
 pub mod merge;
 pub mod model;
+pub mod pcsx2;
 pub mod retroarch;
 pub mod store;
 

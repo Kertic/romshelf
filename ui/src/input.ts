@@ -153,3 +153,17 @@ export const KEY_TO_BUTTON: Record<string, Button> = {
   F11: "l5",
   F12: "r5",
 };
+
+/**
+ * Buttons Romshelf may act on: none while a game runs (`blocked`), and after it a button still
+ * held from the game only once released, so the press that closed the game presses nothing here.
+ * `heldOver` carries those buttons between calls.
+ */
+export function gateHeld(held: Set<Button>, blocked: boolean, heldOver: Set<Button>): Set<Button> {
+  if (blocked) {
+    held.forEach((b) => heldOver.add(b));
+    return new Set();
+  }
+  for (const b of [...heldOver]) if (!held.has(b)) heldOver.delete(b);
+  return new Set([...held].filter((b) => !heldOver.has(b)));
+}

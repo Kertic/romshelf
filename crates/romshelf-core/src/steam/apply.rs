@@ -348,7 +348,19 @@ fn apply_controller_layouts(
     }
     for d in desired {
         let key = input::config_key(&d.name);
-        ctx.files.write_controller_layout(user, &key, &layout)?;
+        // A layout already there is the player's (Steam saves their changes into it): keep it.
+        // Found on the Deck (2026-10-21): rewriting it on every apply undid those changes.
+        if ctx.files.read_controller_layout(user, &key)?.is_none() {
+            // Renamed: the layout under the old name comes along.
+            let carried = match before.iter().find(|f| f.app_id == d.app_id) {
+                Some(old) if input::config_key(&old.name) != key => ctx
+                    .files
+                    .read_controller_layout(user, &input::config_key(&old.name))?,
+                _ => None,
+            };
+            ctx.files
+                .write_controller_layout(user, &key, carried.as_deref().unwrap_or(&layout))?;
+        }
         set = Some(input::set_entry(set.as_deref(), &key, true));
     }
     if let Some(text) = set {

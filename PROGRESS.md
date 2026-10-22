@@ -1,5 +1,114 @@
 # Progress
 
+## Stage 11: PS2 with PCSX2 (branch `stage-11-ps2`, on top of `self-test`)
+
+Status: **built; waiting for the on-Deck checks.** No stage file covers this; the brief says "PCSX2 follows the same pattern later". This follows Dolphin's pattern.
+
+### Plan
+
+- **Adapter:** `Pcsx2` for the `ps2` system (`.iso`, `.chd`), as the Flatpak `net.pcsx2.PCSX2` (LINKS.md, checked).
+- **Its own data folder,** so a PCSX2 the user already has is never touched. PCSX2's `-datapath` puts every setting and folder under the folder it names, with settings in `inis/PCSX2.ini` (from PCSX2's source, `Pcsx2Config.cpp`).
+- **The launch:**
+  - `flatpak run --filesystem=<roms>:ro net.pcsx2.PCSX2 -datapath <ours> -batch -nogui -fullscreen -- <game>`.
+  - `-batch`: PCSX2 quits when the game does.
+  - `-nogui`: no main window.
+  - `--`: the path is taken whole.
+  - The options are from PCSX2's source, `QtHost.cpp`.
+- **BIOS:** a PS2 BIOS is required, and its file name depends on the console model (`SCPH-70012.bin`, …). Setup copies every `.bin` from Drive's `Emulation/bios/ps2/`, and `[Filenames] BIOS` names the first. Romshelf never includes one; you dump your own.
+- **Saves:** one memory card per game, in the game's own folder (`[Folders] MemoryCards`, `[MemoryCards] Slot1_Filename = Mcd001.ps2`). Backups, restores and conflicts work as for Dolphin's per-game folders.
+- **Save states:** a folder per game (`[Folders] Savestates`), mirrored to Drive like RetroArch's.
+- **Controls:**
+  - DualShock 2 targets: Cross, Circle, Square, Triangle, L1/R1/L2/R2/L3/R3, Start, Select, the D-pad and both sticks.
+  - Default by position: the Deck's A is Cross.
+  - Written to `[Pad1]` as `SDL-0/FaceSouth` and so on.
+  - Hotkeys in `[Hotkeys]` on the grips (`Keyboard/F9` to `F12`): L4 `HoldTurbo`, L5 `SaveStateToSlot`, R5 `LoadStateFromSlot`, plus `ShutdownVM` to quit.
+  - Names from PCSX2's source (`PadDualshock2.cpp`, `Hotkeys.cpp`, `SDLInputSource.cpp`, `InputManager.cpp`).
+- **First run:** the settings file Romshelf writes marks PCSX2's setup wizard as done, so it never appears.
+
+### Built
+
+- **Adapter:** `Pcsx2` in the registry, so PS2 games show "Needs PCSX2" until it's set up. Set up installs the Flatpak and copies every `.bin` from Drive's `bios/ps2/`; with none there, it names what to add.
+- **Settings file:** PCSX2's settings in Romshelf's own data folder, written by key (`ini.rs`), so anything else in the file is kept. `prepare_session` sets the BIOS and marks the wizard done. `prepare_game` points memory cards and save states at the game's own folders.
+- **Controls:**
+  - DualShock 2 targets with a by-position default (A is Cross).
+  - Grip hotkeys: L4 fast forward, L5 save state, R5 load state.
+  - All written to `[Pad1]` and `[Hotkeys]` (`controls/pcsx2.rs`). A PS2 button bound to two Deck buttons lists both.
+- **Elsewhere:** the self-test checks PCSX2's settings file for a downloaded PS2 game, and `doctor` lists PCSX2.
+- **Fake mode:** has a stand-in PS2 BIOS file (a few bytes, not a BIOS), so the setup can be tried there.
+
+### Tests
+
+- INI editing (5).
+- The adapter: registry, launch command, settings, per-game folders, BIOS copied whatever its name, and a missing BIOS named (6).
+- Controls (3).
+- A WebDriver flow in the real app: Set up PCSX2 → Download → Play (8th flow).
+- Updated tests that expected "Romshelf can't run PS2 games yet".
+
+### On-Deck checklist
+
+- [ ] Put your own PS2 BIOS dump (`.bin`) in Drive's `Emulation/bios/ps2/`, then set up PCSX2 from a PS2 game's page.
+- [ ] A PS2 game starts full screen in PCSX2 with no PCSX2 window or wizard first, and quitting (View + Menu held) returns to Steam or Romshelf.
+- [ ] The pad works (Cross on A), and L4 fast forward, L5 save state and R5 load state work.
+- [ ] Save in the game, quit: the memory card backs up to Drive. Play again: the save is there.
+
+### Confirm (on the Deck)
+
+- The pad section is named `[Pad1]`, and its type is `Type = DualShock2`.
+- The key that skips the setup wizard.
+- PCSX2 creates a missing memory card file itself.
+- The Steam virtual gamepad is `SDL-0` under the Flatpak.
+- `-batch -nogui -fullscreen -- <file>` starts the game straight away, and closing it ends PCSX2.
+
+## Self-test (branch `self-test`, on top of `stage-10-followups`)
+
+Status: **built; to try on the Deck.** You asked for a button that runs the tests for you. It's **Settings → Run the self-test**.
+
+### What it does
+
+1. **Automatic checks** (about a minute; nothing of yours changes):
+   - `doctor`'s checks.
+   - Steam's shortcuts file: readable, and still executable.
+   - Each of Romshelf's shortcuts: launches a game Romshelf has, with its artwork and its Steam Input layout. Romshelf's own shortcut is there.
+   - Each downloaded game: its launch planned step by step (as `doctor --id`).
+   - The emulator files Romshelf writes: RetroArch's remap settings and each game's controls.
+   - ROM storage: a file written, read back and removed; free space.
+   - Drive: a 4 MB file sent to `.romshelf/selftest/`, checked, downloaded the way a ROM is (with the connection dropped halfway, so it has to resume), checked again, then trashed.
+   - How recent launches ended, from `launch.log`.
+2. **A tour of each screen** (Library, Transfers, a game's page, Controls, Steam shortcut, Emulators, Settings). Each is checked as shown:
+   - every control reachable with the D-pad;
+   - focus present and drawn;
+   - nothing wrapping in the top band or footer, and nothing wider than the screen;
+   - targets at least 44 px, with a button hint each;
+   - the smallest text size.
+
+   Closing a panel must give focus back.
+3. **Guided steps**, one at a time, each detecting the result where it can (every step can be skipped):
+   - **Buttons:** press each, back grips included. This shows whether Romshelf's own shortcut has the Steam Input layout.
+   - **On-screen keyboard:** type "ok".
+   - **Readable at arm's length:** you answer.
+   - **A game's own controls:** plays a game whose controls differ from the default (Kirby), then asks.
+   - **Airplane mode:** it waits for the network to go and checks the Library opens offline. Then it plays a game, checks a backup is owed, waits for the network to return and watches the backup reach Drive.
+   - **SD card:** it waits for the card to go and come back. It's skipped while ROMs are on internal storage.
+
+**The report** is saved after every step to `~/.local/share/romshelf/logs/selftest/latest.txt` (with `latest.json` and a timestamped copy), where Claude can read it over SSH. `romshelf doctor --selftest` runs part 1 without the window.
+
+### Found by its first run (fixed)
+
+- **Focus on opening:** Settings and the Steam shortcut screen opened with nothing focused. The first D-pad press only found focus. Now any screen opening with nothing focused starts on its main action.
+- **Checkbox targets:** checkbox rows were under 44 px and had no button hint. Rows are now 44 px tall, with bigger boxes in the accent colour and a "Toggle" hint.
+
+### Tests
+
+- 10 Rust tests for the checks. The Drive test proves the resume really asked from halfway, and that only Romshelf's own folder was touched.
+- UI tests for the audit (6), the screen (5) and the app-level tour.
+- A WebDriver flow running it in the real app.
+
+`[update screens]` in a commit message now makes CI write fresh comparison images, for screens changed on purpose.
+
+### On-Deck checklist
+
+- [ ] Run Settings → Run the self-test and go through the guided steps; Claude reads the report. 2026-10-21, first run: buttons (all four grips), keyboard and readability passed; 39 automatic checks passed, 0 failed. The airplane step looked stuck (its network check retried for 15 s or more each look; fixed), and the controls step skipped Kirby (its swap is in the GBA default; fixed). To run again for airplane mode and the controls step.
+
 ## After stage 10: checks and follow-ups (branch `stage-10-followups`)
 
 Status: **built; CI green (end-to-end and visual on Linux).** Main has stages 0 to 6 only: PRs #11 to #14 were merged into the branch below each one rather than main (as #7 to #9 were). This branch is main plus stage 10 (which holds 7 to 10), so merging it into main brings everything in.
@@ -172,8 +281,8 @@ UI tests: 172, up from 106.
 ### On-Deck checklist
 
 - [ ] Every action can be reached and completed without touching the screen.
-- [ ] Text is readable at arm's length on the Deck's screen.
-- [ ] The on-screen keyboard opens for the shortcut name field (Steam's, or ⌨), and the result is saved.
+- [x] Text is readable at arm's length on the Deck's screen. (Self-test, 2026-10-21: confirmed.)
+- [x] The on-screen keyboard opens for the shortcut name field (Steam's, or ⌨), and the result is saved. (Self-test, 2026-10-21: Steam's keyboard typed "ok" into the same text field; renaming a shortcut was confirmed in stage 8.)
 - [ ] Focus is always visible, including after dialogs close.
 - [ ] Offline: the Library opens, downloaded games play, and Drive-only actions explain why they're unavailable.
 - [ ] (From stage 8.) Kirby with your GBA default: X acts as B and Y as A, alongside A and B, and your save loads.

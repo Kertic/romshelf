@@ -55,7 +55,24 @@ pub fn built_in(scope: &Scope) -> Layout {
             ("r2", "r"),
             ("menu", "start"),
         ],
-        System::Ps2 => &[],
+        // By position, as on the DualShock 2: the Deck's bottom button is Cross.
+        System::Ps2 => &[
+            ("dpad", "dpad"),
+            ("left_stick", "left_stick"),
+            ("right_stick", "right_stick"),
+            ("a", "cross"),
+            ("b", "circle"),
+            ("x", "square"),
+            ("y", "triangle"),
+            ("l1", "l1"),
+            ("r1", "r1"),
+            ("l2", "l2"),
+            ("r2", "r2"),
+            ("l3", "l3"),
+            ("r3", "r3"),
+            ("menu", "start"),
+            ("view", "select"),
+        ],
     };
     let hotkeys: &[(&str, &str)] = match scope.emulator_id.as_str() {
         "retroarch" => &[
@@ -64,7 +81,7 @@ pub fn built_in(scope: &Scope) -> Layout {
             ("l5", "save_state"),
             ("r5", "load_state"),
         ],
-        "dolphin" => &[
+        "dolphin" | "pcsx2" => &[
             ("l4", "fast_forward"),
             ("l5", "save_state"),
             ("r5", "load_state"),

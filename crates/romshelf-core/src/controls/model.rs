@@ -165,6 +165,24 @@ const GAMECUBE: &[Target] = &[
     button("start", "Start"),
 ];
 
+const PS2: &[Target] = &[
+    pad("dpad", "D-pad"),
+    pad("left_stick", "Left stick"),
+    pad("right_stick", "Right stick"),
+    button("cross", "Cross"),
+    button("circle", "Circle"),
+    button("square", "Square"),
+    button("triangle", "Triangle"),
+    button("l1", "L1"),
+    button("r1", "R1"),
+    button("l2", "L2"),
+    button("r2", "R2"),
+    button("l3", "L3"),
+    button("r3", "R3"),
+    button("start", "Start"),
+    button("select", "Select"),
+];
+
 const RETROARCH_HOTKEYS: &[Target] = &[
     hotkey("fast_forward", "Fast forward"),
     hotkey("rewind", "Rewind"),
@@ -181,6 +199,13 @@ const DOLPHIN_HOTKEYS: &[Target] = &[
     hotkey("quit", "Quit game"),
 ];
 
+const PCSX2_HOTKEYS: &[Target] = &[
+    hotkey("fast_forward", "Fast forward"),
+    hotkey("save_state", "Save state"),
+    hotkey("load_state", "Load state"),
+    hotkey("quit", "Quit game"),
+];
+
 /// The console's own buttons per system.
 pub fn game_targets(system: System) -> &'static [Target] {
     match system {
@@ -188,7 +213,7 @@ pub fn game_targets(system: System) -> &'static [Target] {
         System::Snes => SNES,
         System::N64 => N64,
         System::Gamecube => GAMECUBE,
-        System::Ps2 => &[],
+        System::Ps2 => PS2,
     }
 }
 
@@ -197,6 +222,7 @@ pub fn hotkey_targets(emulator_id: &str) -> &'static [Target] {
     match emulator_id {
         "retroarch" => RETROARCH_HOTKEYS,
         "dolphin" => DOLPHIN_HOTKEYS,
+        "pcsx2" => PCSX2_HOTKEYS,
         _ => &[],
     }
 }

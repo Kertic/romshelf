@@ -7,6 +7,7 @@ mod emulators_cli;
 mod gamepad;
 mod library_cli;
 mod saves_cmd;
+mod selftest_cmd;
 mod settings_cmd;
 mod state;
 mod steam_cli;
@@ -64,8 +65,12 @@ pub fn run() -> i32 {
             };
             launch_command(target)
         }
-        Some(Command::Doctor { id: Some(id) }) => doctor_launch(&id),
-        Some(Command::Doctor { id: None }) => doctor_all(),
+        Some(Command::Doctor { selftest: true, .. }) => match open_state() {
+            Ok(state) => selftest_cmd::headless(&state),
+            Err(code) => code,
+        },
+        Some(Command::Doctor { id: Some(id), .. }) => doctor_launch(&id),
+        Some(Command::Doctor { id: None, .. }) => doctor_all(),
         Some(Command::Auth(cmd)) => {
             let conn = match Paths::for_app().and_then(|p| Connection::real(&p)) {
                 Ok(c) => c,
@@ -772,8 +777,18 @@ fn with_launch_ctx<T>(
         max_attempts: DOWNLOAD_ATTEMPTS,
         device: &state.device,
         ask,
+        online: if state.fake {
+            &|| true
+        } else {
+            &google_reachable
+        },
     };
     f(&ctx)
+}
+
+/// Google answers right now: one connection, at most three seconds, no retries.
+pub(crate) fn google_reachable() -> bool {
+    selftest_cmd::reachable("www.googleapis.com", 443, Duration::from_secs(3))
 }
 
 /// A launch with no window can't ask about a save conflict.
@@ -1132,6 +1147,10 @@ fn run_interface(state: AppState, launch: Option<String>) -> i32 {
             settings_cmd::change_storage,
             settings_cmd::check_for_updates,
             settings_cmd::diagnostics,
+            selftest_cmd::selftest_run,
+            selftest_cmd::selftest_probe,
+            selftest_cmd::selftest_flush,
+            selftest_cmd::selftest_save,
             settings_cmd::transfers,
             settings_cmd::open_steam_keyboard,
             quit

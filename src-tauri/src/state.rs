@@ -133,6 +133,12 @@ impl AppState {
                     &vec![0; rom.size as usize],
                 )?;
             }
+            // A stand-in PS2 BIOS (a few bytes, not a BIOS), so PCSX2's setup can finish here.
+            fake_conn.drive.create_file(
+                "SCPH-00000-fake.bin",
+                &folder.layout.bios_folders["ps2"],
+                b"not a real bios",
+            )?;
         }
         // RetroArch is installed and set up (cores in place); Dolphin is not, so its setup
         // can be tried. The simulated Flatpak installs with visible progress.
