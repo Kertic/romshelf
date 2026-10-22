@@ -2,7 +2,7 @@
 
 ## Stage 11: PS2 with PCSX2 (branch `stage-11-ps2`, on top of `self-test`)
 
-Status: **in progress.** No stage file covers this; the brief says "PCSX2 follows the same pattern later". This follows Dolphin's pattern.
+Status: **built; waiting for the on-Deck checks.** No stage file covers this; the brief says "PCSX2 follows the same pattern later". This follows Dolphin's pattern.
 
 ### Plan
 
@@ -24,6 +24,32 @@ Status: **in progress.** No stage file covers this; the brief says "PCSX2 follow
   - Hotkeys in `[Hotkeys]` on the grips (`Keyboard/F9` to `F12`): L4 `HoldTurbo`, L5 `SaveStateToSlot`, R5 `LoadStateFromSlot`, plus `ShutdownVM` to quit.
   - Names from PCSX2's source (`PadDualshock2.cpp`, `Hotkeys.cpp`, `SDLInputSource.cpp`, `InputManager.cpp`).
 - **First run:** the settings file Romshelf writes marks PCSX2's setup wizard as done, so it never appears.
+
+### Built
+
+- **Adapter:** `Pcsx2` in the registry, so PS2 games show "Needs PCSX2" until it's set up. Set up installs the Flatpak and copies every `.bin` from Drive's `bios/ps2/`; with none there, it names what to add.
+- **Settings file:** PCSX2's settings in Romshelf's own data folder, written by key (`ini.rs`), so anything else in the file is kept. `prepare_session` sets the BIOS and marks the wizard done. `prepare_game` points memory cards and save states at the game's own folders.
+- **Controls:**
+  - DualShock 2 targets with a by-position default (A is Cross).
+  - Grip hotkeys: L4 fast forward, L5 save state, R5 load state.
+  - All written to `[Pad1]` and `[Hotkeys]` (`controls/pcsx2.rs`). A PS2 button bound to two Deck buttons lists both.
+- **Elsewhere:** the self-test checks PCSX2's settings file for a downloaded PS2 game, and `doctor` lists PCSX2.
+- **Fake mode:** has a stand-in PS2 BIOS file (a few bytes, not a BIOS), so the setup can be tried there.
+
+### Tests
+
+- INI editing (5).
+- The adapter: registry, launch command, settings, per-game folders, BIOS copied whatever its name, and a missing BIOS named (6).
+- Controls (3).
+- A WebDriver flow in the real app: Set up PCSX2 → Download → Play (8th flow).
+- Updated tests that expected "Romshelf can't run PS2 games yet".
+
+### On-Deck checklist
+
+- [ ] Put your own PS2 BIOS dump (`.bin`) in Drive's `Emulation/bios/ps2/`, then set up PCSX2 from a PS2 game's page.
+- [ ] A PS2 game starts full screen in PCSX2 with no PCSX2 window or wizard first, and quitting (View + Menu held) returns to Steam or Romshelf.
+- [ ] The pad works (Cross on A), and L4 fast forward, L5 save state and R5 load state work.
+- [ ] Save in the game, quit: the memory card backs up to Drive. Play again: the save is there.
 
 ### Confirm (on the Deck)
 

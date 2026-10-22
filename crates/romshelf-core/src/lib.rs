@@ -11,6 +11,7 @@ pub mod drive;
 pub mod emulators;
 pub mod error;
 pub mod http;
+pub mod ini;
 pub mod launch;
 pub mod library;
 pub mod model;

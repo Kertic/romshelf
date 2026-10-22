@@ -119,6 +119,7 @@ fn a_healthy_install_is_all_green() {
             "Romshelf install",
             "RetroArch",
             "Dolphin",
+            "PCSX2",
             "Steam",
             "Steam shortcuts",
             "Save backups",

@@ -452,16 +452,16 @@ function browserPreviewLibrary(): LibraryEntry[] {
     },
     system_label: label,
     system_colour: colour,
-    emulator: system === "gamecube" ? "Dolphin" : system === "ps2" ? null : "RetroArch",
-    emulator_id: system === "gamecube" ? "dolphin" : system === "ps2" ? null : "retroarch",
+    emulator: system === "gamecube" ? "Dolphin" : system === "ps2" ? "PCSX2" : "RetroArch",
+    emulator_id: system === "gamecube" ? "dolphin" : system === "ps2" ? "pcsx2" : "retroarch",
     core: system === "snes" ? "snes9x" : system === "gba" ? "mgba" : null,
-    emulator_installed: system !== "gamecube",
+    emulator_installed: system !== "gamecube" && system !== "ps2",
     emulator_ready: system !== "gamecube" && system !== "ps2",
     actions:
       system === "gamecube"
         ? [{ id: "memory_cards", label: "Memory cards" }, { id: "save_states", label: "Save states" }, { id: "texture_packs", label: "Texture packs" }]
         : system === "ps2"
-          ? []
+          ? [{ id: "memory_cards", label: "Memory cards" }, { id: "save_states", label: "Save states" }]
           : [{ id: "save_states", label: "Save states" }, { id: "cheats", label: "Cheats" }, { id: "shaders", label: "Shaders" }],
     in_steam,
     save: {
@@ -471,7 +471,7 @@ function browserPreviewLibrary(): LibraryEntry[] {
       pending: false,
       last_error: null,
     },
-    keeps_states: system !== "gamecube" && system !== "ps2",
+    keeps_states: system !== "gamecube",
     control_differences: system === "gba" ? 1 : 0,
   }));
 }

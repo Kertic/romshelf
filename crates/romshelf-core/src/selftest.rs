@@ -12,7 +12,7 @@ use crate::db::Database;
 use crate::doctor::{self, DoctorContext};
 use crate::drive::scaffold::DriveLayout;
 use crate::drive::{DriveClient, DriveFile};
-use crate::emulators::{Dolphin, EmulatorAdapter, RetroArch};
+use crate::emulators::{Dolphin, EmulatorAdapter, Pcsx2, RetroArch};
 use crate::model::{ArtSlot, LocationState, Rom, RomId, System};
 use crate::paths::Paths;
 use crate::steam::{self, apply, artwork, input, shortcuts};
@@ -381,6 +381,8 @@ pub fn emulator_files(ctx: &DoctorContext) -> Vec<Check> {
             f
         } else if Dolphin.systems().contains(&rom.system) {
             vec![Dolphin::config_dir(ctx.paths).join("GCPadNew.ini")]
+        } else if Pcsx2.systems().contains(&rom.system) {
+            vec![Pcsx2::settings_file(ctx.paths)]
         } else {
             continue;
         };

@@ -384,11 +384,15 @@ fn a_game_gone_from_drive_is_a_clear_error() {
 }
 
 #[test]
-fn a_system_without_an_emulator_or_an_unrecognized_file_is_refused() {
+fn a_ps2_game_without_a_bios_or_an_unrecognized_file_is_refused() {
     let r = Rig::new();
+    // PCSX2 needs a PS2 BIOS, which only the player can provide.
     let ps2 = r.rom(System::Ps2, "Nine Orchards.iso");
     let err = r.launch(id(&ps2)).0.unwrap_err();
-    assert_eq!(err.to_string(), "Romshelf can't run PS2 games yet.");
+    assert_eq!(
+        err.to_string(),
+        "Missing BIOS: a PS2 BIOS file (.bin). Add it to Drive's Emulation/bios/ps2 folder."
+    );
     let zip = r.rom(System::Gamecube, "Shadow.zip");
     let err = r.launch(id(&zip)).0.unwrap_err();
     assert!(err.to_string().contains("Dolphin can't run"), "{err}");

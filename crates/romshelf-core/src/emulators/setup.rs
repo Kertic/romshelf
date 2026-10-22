@@ -374,6 +374,26 @@ fn copy_bios(ctx: &SetupContext, adapter: &dyn EmulatorAdapter) -> Result<BiosRe
         };
         let dest = adapter.bios_dir(ctx.paths, *system);
         for bios in files {
+            if let Some(ext) = &bios.extension {
+                let suffix = format!(".{}", ext.to_ascii_lowercase());
+                let matching: Vec<_> = in_drive
+                    .iter()
+                    .filter(|f| !f.is_folder() && f.name.to_ascii_lowercase().ends_with(&suffix))
+                    .collect();
+                match (matching.is_empty(), ctx.drive) {
+                    (false, Some((drive, _))) => {
+                        std::fs::create_dir_all(&dest)?;
+                        for f in matching {
+                            let bytes = drive.download(&f.id, 0)?;
+                            std::fs::write(dest.join(&f.name), bytes)?;
+                            report.copied.push(f.name.clone());
+                        }
+                    }
+                    _ if bios.required => report.missing_required.push(bios.name),
+                    _ => report.missing_optional.push(bios.name),
+                }
+                continue;
+            }
             let found = in_drive
                 .iter()
                 .find(|f| !f.is_folder() && f.name.eq_ignore_ascii_case(&bios.name));

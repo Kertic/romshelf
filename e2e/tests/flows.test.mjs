@@ -196,3 +196,35 @@ describe("self-test", () => {
     assert.match(await app.bodyText(), /Saved to .*latest\.txt/);
   });
 });
+
+describe("PS2", () => {
+  let s;
+  before(async () => {
+    s = await launch();
+    await s.app.dismissStartupPrompt();
+  });
+  after(() => s?.close());
+
+  it("8. a PS2 game: Set up PCSX2 (BIOS from Drive) → Download → Play (fake emulator)", async () => {
+    const { app } = s;
+    await app.waitForHeading("All systems");
+    await app.navigateTo("Starfall Relay");
+    await app.press(KEYS.A);
+    await app.waitForHeading("Starfall Relay");
+    assert.match(await app.focused(), /Set up PCSX2/);
+    await app.press(KEYS.A);
+    await app.waitFor(async () => !/Set up PCSX2/.test(await app.bodyText()), "PCSX2 to be set up", 60_000);
+    assert.doesNotMatch(await app.bodyText(), /Missing BIOS/);
+    await app.navigateTo("Download to Deck");
+    await app.press(KEYS.A);
+    await app.waitFor(async () => /On Deck/.test(await app.bodyText()), "the download", 30_000);
+    await app.navigateTo("Play");
+    await app.press(KEYS.A);
+    await app.waitFor(async () => /Playing|Starting|Running/.test(await app.bodyText()), "the game to start");
+    await app.waitFor(
+      async () => !/Playing|Starting|Running/.test(await app.bodyText()) && (await app.heading()) === "Starfall Relay",
+      "the game to end",
+      30_000,
+    );
+  });
+});

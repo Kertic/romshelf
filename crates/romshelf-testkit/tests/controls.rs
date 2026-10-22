@@ -740,3 +740,122 @@ fn dolphin_writes_pad_one_and_hotkeys_into_its_own_settings() {
         "Emulation Speed/Disable Emulation Speed Limit = `XInput2/0/Virtual core pointer:F9`"
     ));
 }
+
+// Stage 11: PS2 in PCSX2.
+
+fn ps2_default() -> Layout {
+    romshelf_core::controls::defaults::built_in(&Scope::new("pcsx2", System::Ps2))
+}
+
+#[test]
+fn ps2_has_the_dualshock_2s_buttons_and_pcsx2s_hotkeys() {
+    use romshelf_core::controls::model::{game_targets, hotkey_targets};
+    let ids: Vec<&str> = game_targets(System::Ps2).iter().map(|t| t.id).collect();
+    for id in [
+        "dpad",
+        "left_stick",
+        "right_stick",
+        "cross",
+        "circle",
+        "square",
+        "triangle",
+        "l1",
+        "r1",
+        "l2",
+        "r2",
+        "l3",
+        "r3",
+        "start",
+        "select",
+    ] {
+        assert!(ids.contains(&id), "{id} in {ids:?}");
+    }
+    let hotkeys: Vec<&str> = hotkey_targets("pcsx2").iter().map(|t| t.id).collect();
+    assert_eq!(
+        hotkeys,
+        ["fast_forward", "save_state", "load_state", "quit"]
+    );
+    // The default is valid, and by position: the Deck's bottom button is Cross.
+    let d = ps2_default();
+    assert!(validate(&Scope::new("pcsx2", System::Ps2), &d).is_ok());
+    assert_eq!(d["a"], bound("cross"));
+    assert_eq!(d["b"], bound("circle"));
+    assert_eq!(d["x"], bound("square"));
+    assert_eq!(d["y"], bound("triangle"));
+    assert_eq!(d["l4"], bound("fast_forward"));
+}
+
+#[test]
+fn pcsx2_settings_bind_pad_1_to_the_steam_pad_and_the_grips_to_keys() {
+    use romshelf_core::controls::pcsx2;
+    use romshelf_core::ini::get;
+    let text = pcsx2::settings("[EmuCore]\nEnableCheats = true\n", &ps2_default());
+    for (key, value) in [
+        ("Type", "DualShock2"),
+        ("Cross", "SDL-0/FaceSouth"),
+        ("Circle", "SDL-0/FaceEast"),
+        ("Square", "SDL-0/FaceWest"),
+        ("Triangle", "SDL-0/FaceNorth"),
+        ("Start", "SDL-0/Start"),
+        ("Select", "SDL-0/Back"),
+        ("L1", "SDL-0/LeftShoulder"),
+        ("R1", "SDL-0/RightShoulder"),
+        ("L2", "SDL-0/+LeftTrigger"),
+        ("R2", "SDL-0/+RightTrigger"),
+        ("L3", "SDL-0/LeftStick"),
+        ("R3", "SDL-0/RightStick"),
+        ("Up", "SDL-0/DPadUp"),
+        ("Down", "SDL-0/DPadDown"),
+        ("Left", "SDL-0/DPadLeft"),
+        ("Right", "SDL-0/DPadRight"),
+        ("LUp", "SDL-0/-LeftY"),
+        ("LDown", "SDL-0/+LeftY"),
+        ("LLeft", "SDL-0/-LeftX"),
+        ("LRight", "SDL-0/+LeftX"),
+        ("RUp", "SDL-0/-RightY"),
+        ("RDown", "SDL-0/+RightY"),
+        ("RLeft", "SDL-0/-RightX"),
+        ("RRight", "SDL-0/+RightX"),
+    ] {
+        assert_eq!(
+            get(&text, "Pad1", key).as_deref(),
+            Some(value),
+            "{key} in\n{text}"
+        );
+    }
+    assert_eq!(
+        get(&text, "Hotkeys", "HoldTurbo").as_deref(),
+        Some("Keyboard/F9")
+    );
+    assert_eq!(
+        get(&text, "Hotkeys", "SaveStateToSlot").as_deref(),
+        Some("Keyboard/F11")
+    );
+    assert_eq!(
+        get(&text, "Hotkeys", "LoadStateFromSlot").as_deref(),
+        Some("Keyboard/F12")
+    );
+    assert_eq!(
+        get(&text, "Hotkeys", "ShutdownVM"),
+        None,
+        "not bound by default"
+    );
+    assert_eq!(get(&text, "InputSources", "SDL").as_deref(), Some("true"));
+    assert_eq!(
+        get(&text, "EmuCore", "EnableCheats").as_deref(),
+        Some("true"),
+        "kept"
+    );
+}
+
+#[test]
+fn two_deck_buttons_on_one_ps2_button_are_both_listed() {
+    use romshelf_core::controls::pcsx2;
+    let mut layout = ps2_default();
+    layout.insert("r4".into(), bound("cross"));
+    let text = pcsx2::settings("", &layout);
+    assert!(
+        text.contains("Cross = SDL-0/FaceSouth\nCross = Keyboard/F10\n"),
+        "{text}"
+    );
+}

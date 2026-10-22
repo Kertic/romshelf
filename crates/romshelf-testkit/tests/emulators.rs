@@ -6,8 +6,12 @@ use romshelf_core::drive::{DriveClient, ROOT};
 use romshelf_core::emulators::setup::{
     self, BiosFile, EmulatorStatus, SetupContext, SetupEvent, SetupStep,
 };
-use romshelf_core::emulators::{Dolphin, EmulatorAdapter, Registry, RetroArch};
+use romshelf_core::emulators::{
+    Dolphin, EmulatorAdapter, LaunchSession, Pcsx2, Registry, RetroArch,
+};
+use romshelf_core::ini;
 use romshelf_core::model::System;
+use romshelf_core::model::{LocationState, Rom, RomId};
 use romshelf_core::paths::Paths;
 use romshelf_core::process::PackageRunner;
 use romshelf_testkit::{FakeDrive, FakeHttp, FakePackageRunner};
@@ -89,17 +93,13 @@ fn every_recognized_extension_resolves_to_one_emulator_or_says_none_yet() {
     for system in System::ALL {
         for ext in system.extensions() {
             let file = format!("game.{ext}");
-            match reg.for_file(system, &file) {
-                Some(a) => assert!(a.systems().contains(&system)),
-                None => assert_eq!(system, System::Ps2, "{system} {ext}"),
-            }
+            let a = reg
+                .for_file(system, &file)
+                .unwrap_or_else(|| panic!("no emulator for {system} {ext}"));
+            assert!(a.systems().contains(&system));
         }
     }
-    let err = match reg.require(System::Ps2) {
-        Err(e) => e,
-        Ok(_) => panic!("PS2 has no emulator yet"),
-    };
-    assert_eq!(err.to_string(), "Romshelf can't run PS2 games yet.");
+    assert_eq!(reg.require(System::Ps2).unwrap().id(), "pcsx2");
     assert_eq!(reg.require(System::Gamecube).unwrap().id(), "dolphin");
     assert_eq!(RetroArch::core_for(System::Gba), Some("mgba"));
     assert_eq!(RetroArch::core_for(System::N64), Some("mupen64plus_next"));
@@ -422,13 +422,17 @@ fn listing_reports_each_emulator_with_its_systems_and_status() {
     let r = Rig::new();
     r.runner.push_result(0, "Installation: user\n", "");
     r.runner.push_result(1, "", NOT_INSTALLED);
+    r.runner.push_result(1, "", NOT_INSTALLED);
     let list = setup::list(&r.ctx(), &Registry::default()).unwrap();
-    assert_eq!(list.len(), 2);
+    assert_eq!(list.len(), 3);
     assert_eq!(list[0].name, "RetroArch");
     assert_eq!(list[0].systems, ["SNES", "GBA", "N64"]);
     assert_eq!(list[0].status, EmulatorStatus::SetupIncomplete);
     assert_eq!(list[1].name, "Dolphin");
     assert_eq!(list[1].status, EmulatorStatus::NotInstalled);
+    assert_eq!(list[2].name, "PCSX2");
+    assert_eq!(list[2].systems, ["PS2"]);
+    assert_eq!(list[2].status, EmulatorStatus::NotInstalled);
     // The library's "Needs Dolphin" comes from the database flag, kept in step here.
     assert!(!r.db.emulator("dolphin").unwrap().unwrap().installed);
     assert!(r.db.emulator("retroarch").unwrap().unwrap().installed);
@@ -519,4 +523,195 @@ fn dolphin_starts_from_a_copy_of_the_users_settings_and_leaves_theirs_alone() {
         std::fs::read(theirs.join("GCPadNew.ini")).unwrap(),
         b"[GCPad1]\nDevice = changed by the user\n"
     );
+}
+
+// Stage 11: PS2 with PCSX2.
+
+fn ps2_rom(n: u8, file: &str) -> Rom {
+    Rom {
+        id: RomId(format!("ps2-0000000{n}")),
+        drive_file_id: format!("f{n}"),
+        system: System::Ps2,
+        file_name: file.into(),
+        display_name: file.trim_end_matches(".iso").into(),
+        size: 4,
+        checksum: None,
+        location: LocationState::OnDeck,
+        recognized: true,
+    }
+}
+
+fn pcsx2_settings(paths: &Paths) -> String {
+    std::fs::read_to_string(Pcsx2::settings_file(paths)).unwrap()
+}
+
+#[test]
+fn ps2_games_run_in_pcsx2_from_its_flatpak() {
+    let reg = Registry::default();
+    for file in ["Starfall Relay.iso", "Nine Orchards.chd"] {
+        assert_eq!(reg.for_file(System::Ps2, file).unwrap().id(), "pcsx2");
+    }
+    let a = reg.for_system(System::Ps2).unwrap();
+    assert_eq!(a.name(), "PCSX2");
+    assert_eq!(a.flatpak_id(), "net.pcsx2.PCSX2");
+}
+
+#[test]
+fn pcsx2_starts_the_game_full_screen_with_romshelfs_own_data_folder() {
+    let r = Rig::new();
+    let rom = ps2_rom(1, "Starfall Relay.iso");
+    let session = LaunchSession {
+        rom_path: "/home/deck/Romshelf/roms/ps2/Starfall Relay.iso".into(),
+        storage_root: "/home/deck/Romshelf".into(),
+    };
+    let cmd = Pcsx2.launch_command(&rom, &session, &r.paths).unwrap();
+    assert_eq!(cmd.program, "flatpak");
+    let data = Pcsx2.session_dir(&r.paths).to_string_lossy().into_owned();
+    assert_eq!(
+        cmd.args,
+        [
+            "run",
+            "--filesystem=/home/deck/Romshelf:ro",
+            "net.pcsx2.PCSX2",
+            "-datapath",
+            data.as_str(),
+            "-batch",
+            "-nogui",
+            "-fullscreen",
+            "--",
+            "/home/deck/Romshelf/roms/ps2/Starfall Relay.iso",
+        ]
+    );
+    // PCSX2 keeps its data in <datapath>/PCSX2, its settings in inis/ there.
+    assert!(Pcsx2::settings_file(&r.paths).ends_with("PCSX2/inis/PCSX2.ini"));
+    assert!(Pcsx2::settings_file(&r.paths).starts_with(Pcsx2.session_dir(&r.paths)));
+}
+
+#[test]
+fn pcsx2_settings_name_the_bios_skip_the_wizard_and_keep_what_else_is_there() {
+    let r = Rig::new();
+    let bios = Pcsx2.bios_dir(&r.paths, System::Ps2);
+    std::fs::create_dir_all(&bios).unwrap();
+    std::fs::write(bios.join("SCPH-70012.bin"), b"dummy").unwrap();
+    std::fs::write(bios.join("readme.txt"), b"x").unwrap();
+    let file = Pcsx2::settings_file(&r.paths);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(
+        &file,
+        "[EmuCore]
+EnableCheats = true
+",
+    )
+    .unwrap();
+    Pcsx2.prepare_session(&r.paths).unwrap();
+    let text = pcsx2_settings(&r.paths);
+    assert_eq!(
+        ini::get(&text, "UI", "SetupWizardIncomplete").as_deref(),
+        Some("false")
+    );
+    assert_eq!(
+        ini::get(&text, "Folders", "Bios").as_deref(),
+        Some(bios.to_string_lossy().as_ref())
+    );
+    assert_eq!(
+        ini::get(&text, "Filenames", "BIOS").as_deref(),
+        Some("SCPH-70012.bin")
+    );
+    assert_eq!(
+        ini::get(&text, "EmuCore", "EnableCheats").as_deref(),
+        Some("true"),
+        "kept"
+    );
+}
+
+#[test]
+fn each_ps2_game_gets_its_own_memory_card_and_state_folder() {
+    let r = Rig::new();
+    let a = ps2_rom(1, "Starfall Relay.iso");
+    let b = ps2_rom(2, "Nine Orchards.iso");
+    assert_ne!(Pcsx2.save_dir(&a, &r.paths), Pcsx2.save_dir(&b, &r.paths));
+    assert!(Pcsx2.keeps_states());
+    Pcsx2.prepare_session(&r.paths).unwrap();
+    Pcsx2.prepare_game(&a, &r.paths).unwrap();
+    let text = pcsx2_settings(&r.paths);
+    let saves = Pcsx2.save_dir(&a, &r.paths);
+    let states = Pcsx2.state_dir(&a, &r.paths).unwrap();
+    assert!(saves.is_dir() && states.is_dir());
+    assert_eq!(
+        ini::get(&text, "Folders", "MemoryCards").as_deref(),
+        Some(saves.to_string_lossy().as_ref())
+    );
+    assert_eq!(
+        ini::get(&text, "Folders", "Savestates").as_deref(),
+        Some(states.to_string_lossy().as_ref())
+    );
+    assert_eq!(
+        ini::get(&text, "MemoryCards", "Slot1_Enable").as_deref(),
+        Some("true")
+    );
+    assert_eq!(
+        ini::get(&text, "MemoryCards", "Slot1_Filename").as_deref(),
+        Some("Mcd001.ps2")
+    );
+    assert_eq!(
+        ini::get(&text, "MemoryCards", "Slot2_Enable").as_deref(),
+        Some("false")
+    );
+    // The next game points them at its own.
+    Pcsx2.prepare_game(&b, &r.paths).unwrap();
+    let text = pcsx2_settings(&r.paths);
+    assert_eq!(
+        ini::get(&text, "Folders", "MemoryCards").as_deref(),
+        Some(Pcsx2.save_dir(&b, &r.paths).to_string_lossy().as_ref())
+    );
+}
+
+#[test]
+fn every_ps2_bios_file_in_drive_is_copied_whatever_its_name() {
+    let r = Rig::new();
+    assert_eq!(
+        Pcsx2.bios_files(System::Ps2),
+        [BiosFile::any_of("bin", "a PS2 BIOS file (.bin)")]
+    );
+    let folder = &r.layout.bios_folders["ps2"];
+    r.drive
+        .create_file("SCPH-70012.bin", folder, b"dummy bios")
+        .unwrap();
+    r.drive
+        .create_file("SCPH-39001.BIN", folder, b"another")
+        .unwrap();
+    r.drive.create_file("notes.txt", folder, b"x").unwrap();
+    r.runner.push_result(
+        0,
+        "Installation: user
+",
+        "",
+    );
+    let report = setup::run_setup(&r.ctx(), &Pcsx2, &mut |_| {}).unwrap();
+    let mut copied = report.copied.clone();
+    copied.sort();
+    assert_eq!(copied, ["SCPH-39001.BIN", "SCPH-70012.bin"]);
+    assert!(report.missing_required.is_empty());
+    let dir = Pcsx2.bios_dir(&r.paths, System::Ps2);
+    assert_eq!(
+        std::fs::read(dir.join("SCPH-70012.bin")).unwrap(),
+        b"dummy bios"
+    );
+    assert!(!dir.join("notes.txt").exists());
+}
+
+#[test]
+fn no_ps2_bios_in_drive_says_what_to_add() {
+    let r = Rig::new();
+    r.runner.push_result(
+        0,
+        "Installation: user
+",
+        "",
+    );
+    let report = setup::run_setup(&r.ctx(), &Pcsx2, &mut |_| {}).unwrap();
+    assert_eq!(report.missing_required, ["a PS2 BIOS file (.bin)"]);
+    assert!(report.summary().contains(
+        "Missing BIOS: a PS2 BIOS file (.bin). Add it to Drive's Emulation/bios/ps2 folder."
+    ));
 }
