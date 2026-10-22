@@ -12,6 +12,7 @@ url.workspace = true
 md-5 = "0.10"
 
 [dev-dependencies]
+rusqlite.workspace = true
 ed25519-dalek = "2"
 sha2 = "0.10"
 base64 = "0.22"

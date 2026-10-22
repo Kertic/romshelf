@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { onGilrs, type GilrsSnapshot } from "./api";
-import { browserPressed, gilrsPressed, KEY_TO_BUTTON, PressTracker, type Button } from "./input";
+import { browserPressed, gilrsPressed, isTyping, keyButton, PressTracker, type Button } from "./input";
 
 export interface BrowserPad {
   index: number;
@@ -83,7 +83,7 @@ export function useInput(onPress: (b: Button, from: "pad" | "keyboard") => void)
     }).then((u) => (cancelled ? u() : (unlisten = u)));
 
     const onKey = (e: KeyboardEvent) => {
-      const b = KEY_TO_BUTTON[e.key];
+      const b = keyButton(e.key, isTyping(document.activeElement));
       if (!b) return;
       e.preventDefault();
       handler.current(b, "keyboard");

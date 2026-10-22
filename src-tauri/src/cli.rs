@@ -94,6 +94,8 @@ pub enum SteamCommand {
     Apply,
     /// List Romshelf's shortcuts.
     List,
+    /// Put Romshelf itself in Steam, opening its interface. The installer runs this.
+    AddSelf,
 }
 
 impl Command {
@@ -193,6 +195,10 @@ mod tests {
         assert_eq!(
             parse(&["steam", "list"]).unwrap().command,
             Some(Command::Steam(SteamCommand::List))
+        );
+        assert_eq!(
+            parse(&["steam", "add-self"]).unwrap().command,
+            Some(Command::Steam(SteamCommand::AddSelf))
         );
         assert_eq!(
             parse(&["download", "gba-00000001"]).unwrap().command,

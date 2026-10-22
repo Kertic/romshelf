@@ -1,0 +1,13 @@
+{
+  "name": "romshelf-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 --test-timeout=240000 \"tests/*.test.mjs\""
+  },
+  "devDependencies": {
+    "pixelmatch": "^8.0.0",
+    "pngjs": "^7.0.0",
+    "selenium-webdriver": "^4.51.0"
+  }
+}

@@ -127,3 +127,59 @@ pub fn start(app: AppHandle) {
         }
     });
 }
+
+/// A line in `launch.log` when View + Menu asked the game to close, naming the pad it came from.
+fn log_quit(dir: &std::path::Path, pads: &[String]) {
+    use std::io::Write;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let line = format!(
+        "{now} View + Menu held on {}: asked the game to close
+",
+        pads.join(", ")
+    );
+    let _ = std::fs::create_dir_all(dir).and_then(|_| {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join("launch.log"))
+            .and_then(|mut f| f.write_all(line.as_bytes()))
+    });
+}
+
+/// Romshelf's quit combination while a game runs: View and Menu held for a second ask the
+/// running emulator to close, cleanly, so it saves first. Romshelf reads the pad itself, so it
+/// works in every emulator and every state, whichever program has focus and whatever the
+/// game's layout.
+pub fn watch_quit(
+    process: std::sync::Arc<dyn romshelf_core::process::ProcessRunner>,
+    log_dir: std::path::PathBuf,
+) {
+    std::thread::spawn(move || {
+        let mut gilrs = match Gilrs::new() {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("Couldn't watch the controller for View + Menu: {e}");
+                return;
+            }
+        };
+        let mut combo = romshelf_core::launch::QuitCombo::default();
+        loop {
+            while gilrs.next_event().is_some() {}
+            // Any pad: while Dolphin runs, the Deck's buttons arrive on its own controller device
+            // rather than Steam's virtual pad (seen on the Deck, 2026-10-20).
+            let holding: Vec<String> = gilrs
+                .gamepads()
+                .filter(|(_, p)| p.is_pressed(Button::Select) && p.is_pressed(Button::Start))
+                .map(|(_, p)| p.name().to_string())
+                .collect();
+            if combo.update(!holding.is_empty(), std::time::Instant::now()) {
+                process.request_stop();
+                log_quit(&log_dir, &holding);
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    });
+}

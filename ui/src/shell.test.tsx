@@ -14,8 +14,8 @@ describe("shell", () => {
     render(<App />);
     await act(async () => {});
     expect(screen.getByText("Romshelf")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Open gamepad test" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Quit Romshelf" })).toBeTruthy();
+    // Settings and Transfers are in the top band; quitting moved to Settings.
+    expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
     expect(screen.getByLabelText("Button hints")).toBeTruthy();
   });
 
@@ -89,6 +89,7 @@ describe("tile status", () => {
     in_steam: false,
     save: { last_synced_hash: null, last_backup_at: null, last_backup_device: null, pending: false, last_error: null },
     keeps_states: false,
+    control_differences: 0,
   };
   it("follows the guide's wording", () => {
     expect(tileStatus(base).text).toBe("On Deck");

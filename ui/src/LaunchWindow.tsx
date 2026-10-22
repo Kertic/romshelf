@@ -13,6 +13,8 @@ export interface LaunchState {
   error: string | null;
   /** A save conflict the launch is waiting on an answer to. */
   conflict?: SaveConflict | null;
+  /** The pipeline step under way ("run" while the game plays). */
+  step?: string | null;
 }
 
 function initials(name: string): string {
@@ -89,6 +91,7 @@ export function LaunchWindow({ entry, launch, onRetry, onOpenRomshelf, onAnswer 
               />
             </div>
             {launch.percent != null && <span className="mono small">{launch.percent}%</span>}
+            <span className="muted small">Hold View and Menu to go back to Steam.</span>
           </div>
         )}
       </div>

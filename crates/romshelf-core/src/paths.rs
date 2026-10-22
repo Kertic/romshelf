@@ -19,6 +19,8 @@ pub struct Paths {
     pub steam_root: PathBuf,
     /// `~/.var/app`: each Flatpak's own data, which its sandbox can always reach.
     pub flatpak_root: PathBuf,
+    /// `~/Applications/romshelf.AppImage`: the fixed path every Steam shortcut runs.
+    pub appimage: PathBuf,
 }
 
 impl Paths {
@@ -47,6 +49,7 @@ impl Paths {
             rom_root,
             steam_root,
             flatpak_root: home.join(".var/app"),
+            appimage: home.join("Applications/romshelf.AppImage"),
         })
     }
 
@@ -86,6 +89,7 @@ impl Paths {
             rom_root: root.join("roms"),
             steam_root: root.join("steam"),
             flatpak_root: root.join("var-app"),
+            appimage: root.join("Applications/romshelf.AppImage"),
         }
     }
 

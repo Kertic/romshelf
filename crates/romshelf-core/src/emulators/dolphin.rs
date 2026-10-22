@@ -161,7 +161,21 @@ impl EmulatorAdapter for Dolphin {
             .join(rom.id.as_str())
     }
 
-    fn write_controls(&self, _layout: &ControlLayout, _rom: &Rom) -> Result<()> {
+    /// Pad 1 and the hotkeys in Romshelf's copy of Dolphin's settings, rewritten before each
+    /// launch (one game runs at a time). Other pads are left as they were.
+    fn write_controls(&self, layout: &ControlLayout, _rom: &Rom, paths: &Paths) -> Result<()> {
+        let dir = Dolphin::config_dir(paths);
+        std::fs::create_dir_all(&dir)?;
+        let pads = dir.join("GCPadNew.ini");
+        let existing = std::fs::read_to_string(&pads).unwrap_or_default();
+        std::fs::write(
+            &pads,
+            crate::controls::dolphin::gcpad_file(&existing, layout),
+        )?;
+        std::fs::write(
+            dir.join("Hotkeys.ini"),
+            crate::controls::dolphin::hotkeys(layout),
+        )?;
         Ok(())
     }
 

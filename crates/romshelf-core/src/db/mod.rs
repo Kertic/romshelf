@@ -85,6 +85,12 @@ CREATE TABLE save_sync (
     last_error          TEXT
 );
 "#,
+    // Stage 8: games the user took out of Steam, so adding every new ROM leaves them out.
+    r#"
+CREATE TABLE steam_hidden (
+    rom_id  TEXT PRIMARY KEY
+);
+"#,
 ];
 
 pub struct Database {
@@ -92,11 +98,40 @@ pub struct Database {
 }
 
 impl Database {
+    /// Opens the index, migrating it forward. Before a migration, the file is copied to
+    /// `<file>.v<old version>.bak`, so a failed upgrade loses nothing.
     pub fn open(path: &Path) -> Result<Database> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
+        if path.exists() {
+            let current: u32 =
+                Connection::open(path)?.pragma_query_value(None, "user_version", |r| r.get(0))?;
+            if current > 0 && current < Database::latest_version() {
+                let backup = path.with_file_name(format!(
+                    "{}.v{current}.bak",
+                    path.file_name()
+                        .map(|n| n.to_string_lossy())
+                        .unwrap_or_default()
+                ));
+                std::fs::copy(path, backup)?;
+            }
+        }
         Database::init(Connection::open(path)?)
+    }
+
+    /// A database at an earlier schema version, as an older Romshelf left it. For migration
+    /// tests.
+    #[doc(hidden)]
+    pub fn create_at_version(path: &Path, version: u32) -> Result<()> {
+        let mut conn = Connection::open(path)?;
+        for (i, sql) in MIGRATIONS.iter().enumerate().take(version as usize) {
+            let tx = conn.transaction()?;
+            tx.execute_batch(sql)?;
+            tx.pragma_update(None, "user_version", (i + 1) as u32)?;
+            tx.commit()?;
+        }
+        Ok(())
     }
 
     pub fn open_in_memory() -> Result<Database> {
@@ -480,6 +515,35 @@ impl Database {
             .transpose()
     }
 
+    pub fn delete_control_profile(&self, emulator_id: &str, rom_id: Option<&RomId>) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM control_profiles WHERE emulator_id = ?1 AND rom_id = ?2",
+            [emulator_id, rom_id.map(RomId::as_str).unwrap_or("")],
+        )?;
+        Ok(())
+    }
+
+    /// Every game's profile for an emulator (not the default), by game.
+    pub fn game_control_profiles(&self, emulator_id: &str) -> Result<Vec<ControlProfile>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT rom_id, bindings FROM control_profiles WHERE emulator_id = ?1 AND rom_id != '' ORDER BY rom_id",
+        )?;
+        let rows = stmt
+            .query_map([emulator_id], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter()
+            .map(|(rom, b)| {
+                Ok(ControlProfile {
+                    emulator_id: emulator_id.to_string(),
+                    rom_id: Some(RomId(rom)),
+                    bindings: serde_json::from_str(&b)?,
+                })
+            })
+            .collect()
+    }
+
     // Shortcuts
 
     pub fn upsert_shortcut(&self, s: &Shortcut) -> Result<()> {
@@ -498,6 +562,57 @@ impl Database {
             ],
         )?;
         Ok(())
+    }
+
+    /// Every shortcut Romshelf keeps, by game.
+    pub fn shortcuts(&self) -> Result<Vec<Shortcut>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT rom_id FROM shortcuts ORDER BY rom_id")?;
+        let ids = stmt
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut out = Vec::new();
+        for id in ids {
+            if let Some(s) = self.shortcut(&RomId(id))? {
+                out.push(s);
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn delete_shortcut(&self, rom_id: &RomId) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM shortcuts WHERE rom_id = ?1", [rom_id.as_str()])?;
+        Ok(())
+    }
+
+    /// Remembers that the user took a game out of Steam (or puts it back).
+    pub fn set_steam_hidden(&self, rom_id: &RomId, hidden: bool) -> Result<()> {
+        if hidden {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO steam_hidden (rom_id) VALUES (?1)",
+                [rom_id.as_str()],
+            )?;
+        } else {
+            self.conn.execute(
+                "DELETE FROM steam_hidden WHERE rom_id = ?1",
+                [rom_id.as_str()],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn steam_hidden(&self, rom_id: &RomId) -> Result<bool> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT 1 FROM steam_hidden WHERE rom_id = ?1",
+                [rom_id.as_str()],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
     }
 
     pub fn shortcut(&self, rom_id: &RomId) -> Result<Option<Shortcut>> {

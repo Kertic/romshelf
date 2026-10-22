@@ -225,3 +225,75 @@ fn local_settings_round_trip_and_reject_newer() {
         Error::NeedsUpdate(_)
     ));
 }
+
+// Stage 10: upgrading the index from every earlier schema.
+
+#[test]
+fn every_earlier_schema_upgrades_keeping_its_data_and_a_backup() {
+    use romshelf_core::db::Database;
+    use romshelf_core::model::{LocationState, Rom, RomId, System};
+    for from in 1..Database::latest_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("index.sqlite");
+        Database::create_at_version(&file, from).unwrap();
+        {
+            // A game, written as that version would have (the systems table is seeded on open).
+            let conn = rusqlite_open(&file);
+            conn.execute_batch(
+                "INSERT INTO systems (id, label, colour) VALUES ('gba', 'GBA', '#1F6B62');
+                 INSERT INTO roms (id, drive_file_id, system, file_name, display_name, size, checksum, location, recognized)
+                 VALUES ('gba-00000001', 'f1', 'gba', 'Kirby.gba', 'Kirby', 1, NULL, '{\"state\":\"on_deck\"}', 1);",
+            )
+            .unwrap();
+        }
+        let db = Database::open(&file).unwrap();
+        assert_eq!(
+            db.schema_version().unwrap(),
+            Database::latest_version(),
+            "from {from}"
+        );
+        let rom = db.rom(&RomId("gba-00000001".into())).unwrap().unwrap();
+        assert_eq!(
+            rom,
+            Rom {
+                id: RomId("gba-00000001".into()),
+                drive_file_id: "f1".into(),
+                system: System::Gba,
+                file_name: "Kirby.gba".into(),
+                display_name: "Kirby".into(),
+                size: 1,
+                checksum: None,
+                location: LocationState::OnDeck,
+                recognized: true,
+            },
+            "from {from}"
+        );
+        let backup = dir.path().join(format!("index.sqlite.v{from}.bak"));
+        assert!(backup.exists(), "backup of version {from}");
+        assert_eq!(user_version(&backup), from);
+        // Opening again migrates nothing and takes no second backup.
+        drop(db);
+        Database::open(&file).unwrap();
+        let backups = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter(|e| {
+                e.as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .ends_with(".bak")
+            })
+            .count();
+        assert_eq!(backups, 1);
+    }
+}
+
+fn rusqlite_open(path: &std::path::Path) -> rusqlite::Connection {
+    rusqlite::Connection::open(path).unwrap()
+}
+
+fn user_version(path: &std::path::Path) -> u32 {
+    rusqlite_open(path)
+        .pragma_query_value(None, "user_version", |r| r.get(0))
+        .unwrap()
+}

@@ -1,8 +1,8 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LibraryEntry, LocationState, SyncStatus } from "./api";
 import { Home } from "./Home";
-import { ago, counts, inTab, nextTab, syncLine } from "./library";
+import { ago, counts, inTab, nextTab, syncLine, visibleRows } from "./library";
 
 afterEach(cleanup);
 
@@ -30,6 +30,7 @@ function entry(name: string, system: string, label: string, location: LocationSt
     in_steam: false,
     save: { last_synced_hash: null, last_backup_at: null, last_backup_device: null, pending: false, last_error: null },
     keeps_states: false,
+    control_differences: 0,
   };
 }
 
@@ -72,16 +73,26 @@ describe("library helpers", () => {
   });
 
   it("words each sync state", () => {
-    expect(syncLine(null, NOW)).toEqual({ text: "Not synced yet", warn: false });
+    expect(syncLine(null, NOW)).toEqual({ text: "Not synced yet", short: "Not synced yet", warn: false });
     expect(syncLine(synced(120), NOW).text).toBe("Google Drive synced 2 min ago");
     expect(syncLine({ state: "syncing", last_synced_at: null, message: null }, NOW).text).toBe(
       "Syncing with Google Drive…",
     );
     expect(syncLine({ state: "offline", last_synced_at: null, message: "x" }, NOW)).toEqual({
       text: "Offline",
+      short: "Offline",
       warn: true,
     });
     expect(syncLine({ state: "error", last_synced_at: null, message: "x" }, NOW).warn).toBe(true);
+  });
+
+  it("shows a short form that fits the top band at 1280 px, the full words as its name", () => {
+    expect(syncLine(synced(120), NOW).short).toBe("Synced 2 min ago");
+    expect(syncLine({ state: "syncing", last_synced_at: null, message: null }, NOW).short).toBe("Syncing…");
+    expect(syncLine({ state: "error", last_synced_at: null, message: "x" }, NOW).short).toBe("Sync failed");
+    for (const s of [null, synced(120), synced(13 * 86400)]) {
+      expect(syncLine(s, NOW).short.length).toBeLessThanOrEqual(16);
+    }
   });
 });
 
@@ -98,7 +109,7 @@ describe("Library screen", () => {
     render(<Home {...base} entries={LIB} />);
     expect(screen.getByRole("heading", { name: "All systems" })).toBeTruthy();
     expect(screen.getByText("3 ROMs in Drive · 2 on Deck")).toBeTruthy();
-    expect(screen.getByText("Kirby")).toBeTruthy();
+    expect(document.querySelector(".grid")!.textContent).toContain("Kirby");
     expect(screen.getByText("Not recognized")).toBeTruthy();
     expect(screen.getByText("GameCube / Shadow the Hedgehog (USA).zip")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Shadow/ })).toBeNull();
@@ -144,6 +155,7 @@ describe("Library screen", () => {
     );
     const busy = screen.getByRole("button", { name: "Syncing with Google Drive…" }) as HTMLButtonElement;
     expect(busy.disabled).toBe(true);
+    expect(busy.textContent).toBe("Syncing…");
   });
 
   it("shows why a sync failed", () => {
@@ -151,5 +163,61 @@ describe("Library screen", () => {
     render(<Home {...base} entries={LIB} sync={{ state: "offline", last_synced_at: null, message }} />);
     expect(screen.getByText(message)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Offline" })).toBeTruthy();
+  });
+});
+
+describe("drawer", () => {
+  const base = {
+    info: null,
+    error: null,
+    driveFolder: "My Drive / EmuSuite / Emulation",
+    onOpenSpike: () => {},
+    onQuit: () => {},
+  };
+  it("shows the focused tile's game, with its main action", () => {
+    const onPlay = vi.fn();
+    const onOpen = vi.fn();
+    render(<Home {...base} entries={LIB} onPlay={onPlay} onOpen={onOpen} />);
+    const tiles = document.querySelectorAll<HTMLElement>(".tile");
+    act(() => tiles[1]!.focus());
+    const drawer = screen.getByRole("complementary", { name: /details/ });
+    const title = drawer.querySelector(".drawer-title")!.textContent!;
+    expect(tiles[1]!.textContent).toContain(title);
+    fireEvent.click(screen.getByRole("button", { name: "Open ROM page: controls and Steam shortcut" }));
+    expect(onOpen).toHaveBeenCalledWith(tiles[1]!.dataset.romId, undefined);
+  });
+});
+
+describe("a large library", () => {
+  const base = {
+    info: null,
+    error: null,
+    driveFolder: "My Drive / Emulation",
+    onOpenSpike: () => {},
+    onQuit: () => {},
+  };
+
+  it("works out the rows near the screen", () => {
+    // 500 rows; the screen shows about three.
+    expect(visibleRows(0, 700, 80, 500)).toEqual({ first: 0, last: 5 });
+    expect(visibleRows(244 * 100 + 80, 700, 80, 500)).toEqual({ first: 98, last: 105 });
+    expect(visibleRows(244 * 499 + 80, 700, 80, 500)).toEqual({ first: 497, last: 500 });
+  });
+
+  it("draws only those rows of 2,000 ROMs", () => {
+    const many = Array.from({ length: 2000 }, (_, i) =>
+      entry(`Game ${i}`, "gba", "GBA", { state: "drive_only" }),
+    ).map((e, i) => ({ ...e, rom: { ...e.rom, id: `gba-${String(i).padStart(8, "0")}` } }));
+    const started = performance.now();
+    render(<Home {...base} entries={many} />);
+    const elapsed = performance.now() - started;
+    const tiles = document.querySelectorAll(".tile");
+    expect(tiles.length).toBeLessThan(60);
+    expect(tiles.length).toBeGreaterThan(0);
+    const grid = document.querySelector<HTMLElement>(".grid.windowed")!;
+    expect(grid.getAttribute("aria-rowcount")).toBe("500");
+    // The space for the rest is kept, so scrolling looks the same as with every tile drawn.
+    expect(parseInt(grid.style.paddingBottom, 10)).toBeGreaterThan(244 * 400);
+    expect(elapsed).toBeLessThan(1000);
   });
 });

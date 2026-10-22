@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browserPressed, gilrsPressed, PressTracker, type Button } from "./input";
+import { browserPressed, gilrsPressed, isTyping, keyButton, PressTracker, type Button } from "./input";
 import { pick } from "./focus";
 
 const pad = (pressedIdx: number[], axes = [0, 0, 0, 0]) => ({
@@ -17,8 +17,10 @@ describe("input", () => {
   });
 
   it("treats the left stick as the D-pad", () => {
-    expect([...browserPressed(pad([], [-0.9, 0.8, 0, 0]))].sort()).toEqual(["down", "left"]);
-    expect([...gilrsPressed([], { left_x: 0, left_y: 0.9 })]).toEqual(["up"]);
+    expect([...browserPressed(pad([], [-0.9, 0.8, 0, 0]))].sort()).toEqual(["down", "left", "lstick"]);
+    // The stick is reported first, then its direction.
+    expect([...gilrsPressed([], { left_x: 0, left_y: 0.9 })]).toEqual(["lstick", "up"]);
+    expect([...gilrsPressed([], { right_x: -0.8 })]).toEqual(["rstick"]);
   });
 
   it("ignores unknown gilrs names", () => {
@@ -49,5 +51,34 @@ describe("focus", () => {
     expect(pick(from, cands, "down")).toBe(2);
     expect(pick(from, cands, "left")).toBe(3);
     expect(pick(from, cands, "up")).toBe(-1);
+  });
+});
+
+describe("keys while typing", () => {
+  it("Backspace, Space, Enter and left/right edit text in a text field", () => {
+    for (const key of ["Backspace", " ", "Enter", "ArrowLeft", "ArrowRight", "F9"]) {
+      expect(keyButton(key, true)).toBeNull();
+    }
+    // Elsewhere they still navigate.
+    expect(keyButton("Backspace", false)).toBe("b");
+    expect(keyButton(" ", false)).toBe("a");
+    expect(keyButton("ArrowLeft", false)).toBe("left");
+  });
+
+  it("Escape and up/down still leave the field", () => {
+    expect(keyButton("Escape", true)).toBe("b");
+    expect(keyButton("ArrowDown", true)).toBe("down");
+    expect(keyButton("ArrowUp", true)).toBe("up");
+  });
+
+  it("knows what counts as a text field", () => {
+    const text = document.createElement("input");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    expect(isTyping(text)).toBe(true);
+    expect(isTyping(box)).toBe(false);
+    expect(isTyping(document.createElement("textarea"))).toBe(true);
+    expect(isTyping(document.createElement("button"))).toBe(false);
+    expect(isTyping(null)).toBe(false);
   });
 });

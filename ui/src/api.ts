@@ -38,6 +38,8 @@ export interface LibraryEntry {
   save: SaveSync;
   /** Romshelf keeps this game's save states (RetroArch). */
   keeps_states: boolean;
+  /** How many inputs this game maps differently from its emulator's default. */
+  control_differences: number;
 }
 
 /** Where a game's save stands against Drive. */
@@ -468,5 +470,280 @@ function browserPreviewLibrary(): LibraryEntry[] {
       last_error: null,
     },
     keeps_states: system !== "gamecube" && system !== "ps2",
+    control_differences: system === "gba" ? 1 : 0,
   }));
+}
+
+/** A binding: a target, or explicitly nothing. */
+export type Binding = { kind: "bound"; action: string } | { kind: "cleared" };
+/** Deck input id → binding. */
+export type Layout = Record<string, Binding>;
+
+export interface InputView {
+  id: string;
+  label: string;
+  directional: boolean;
+  back_grip: boolean;
+}
+
+export interface TargetView {
+  id: string;
+  label: string;
+  kind: "game" | "hotkey";
+  directional: boolean;
+}
+
+/** One emulator's layout for one system, and one game's differences when a game is given. */
+export interface ControlsView {
+  emulator_id: string;
+  emulator: string;
+  system: string;
+  system_label: string;
+  game: { id: string; name: string } | null;
+  inputs: InputView[];
+  targets: TargetView[];
+  default: Layout;
+  game_diff: Layout;
+}
+
+export async function controlsView(emulatorId: string, system: string, romId: string | null): Promise<ControlsView> {
+  if (!inTauri()) return previewControls(emulatorId, system, romId);
+  return invoke<ControlsView>("controls_view", { emulatorId, system, romId });
+}
+
+/** Saves the default (no game: the full layout) or the game's differences. */
+export async function saveControls(emulatorId: string, system: string, romId: string | null, layout: Layout): Promise<void> {
+  if (inTauri()) await invoke("save_controls", { emulatorId, system, romId, layout });
+}
+
+export async function resetControls(emulatorId: string, system: string, romId: string): Promise<void> {
+  if (inTauri()) await invoke("reset_controls", { emulatorId, system, romId });
+}
+
+export async function promoteCount(emulatorId: string, system: string, romId: string, layout: Layout): Promise<number> {
+  if (!inTauri()) return 2;
+  return invoke<number>("promote_count", { emulatorId, system, romId, layout });
+}
+
+export async function promoteControls(emulatorId: string, system: string, romId: string, layout: Layout): Promise<void> {
+  if (inTauri()) await invoke("promote_controls", { emulatorId, system, romId, layout });
+}
+
+function previewControls(emulatorId: string, system: string, romId: string | null): ControlsView {
+  const b = (action: string): Binding => ({ kind: "bound", action });
+  const c: Binding = { kind: "cleared" };
+  const inputs: [string, string, boolean, boolean][] = [
+    ["dpad", "D-pad", true, false], ["left_stick", "Left stick", true, false], ["right_stick", "Right stick", true, false],
+    ["a", "A", false, false], ["b", "B", false, false], ["x", "X", false, false], ["y", "Y", false, false],
+    ["l1", "L1", false, false], ["r1", "R1", false, false], ["l2", "L2", false, false], ["r2", "R2", false, false],
+    ["l3", "L3", false, false], ["r3", "R3", false, false], ["menu", "Menu", false, false], ["view", "View", false, false],
+    ["l4", "L4", false, true], ["r4", "R4", false, true], ["l5", "L5", false, true], ["r5", "R5", false, true],
+  ];
+  return {
+    emulator_id: emulatorId,
+    emulator: "RetroArch",
+    system,
+    system_label: "GBA",
+    game: romId ? { id: romId, name: "Tidewalker" } : null,
+    inputs: inputs.map(([id, label, directional, back_grip]) => ({ id, label, directional, back_grip })),
+    targets: [
+      { id: "dpad", label: "D-pad", kind: "game", directional: true },
+      { id: "a", label: "A", kind: "game", directional: false },
+      { id: "b", label: "B", kind: "game", directional: false },
+      { id: "l", label: "L shoulder", kind: "game", directional: false },
+      { id: "r", label: "R shoulder", kind: "game", directional: false },
+      { id: "start", label: "Start", kind: "game", directional: false },
+      { id: "select", label: "Select", kind: "game", directional: false },
+      { id: "fast_forward", label: "Fast forward", kind: "hotkey", directional: false },
+      { id: "rewind", label: "Rewind", kind: "hotkey", directional: false },
+      { id: "save_state", label: "Save state", kind: "hotkey", directional: false },
+      { id: "load_state", label: "Load state", kind: "hotkey", directional: false },
+      { id: "menu", label: "Open menu", kind: "hotkey", directional: false },
+      { id: "quit", label: "Quit game", kind: "hotkey", directional: false },
+    ],
+    default: {
+      dpad: b("dpad"), left_stick: b("dpad"), right_stick: c, a: b("a"), b: b("b"), x: c, y: c,
+      l1: b("l"), r1: b("r"), l2: c, r2: c, l3: c, r3: c, menu: b("start"), view: b("select"),
+      l4: b("fast_forward"), r4: b("rewind"), l5: b("save_state"), r5: b("load_state"),
+    },
+    game_diff: romId ? { r4: c } : {},
+  };
+}
+
+export type ArtSlot = "capsule" | "wide_capsule" | "hero" | "logo" | "icon";
+
+export interface SlotView {
+  slot: ArtSlot;
+  label: string;
+  /** The user's file, Romshelf's generated artwork, or nothing (Logo only). */
+  source: "chosen" | "generated" | "missing";
+  preview: string | null;
+}
+
+/** A game's Steam shortcut, for the shortcut screen (UI guide 5.5). */
+export interface ShortcutView {
+  rom_id: string;
+  shown: boolean;
+  name: string;
+  default_name: string;
+  target: string;
+  launch_options: string;
+  slots: SlotView[];
+  auto_add: boolean;
+}
+
+/** What writing to Steam changed. */
+export interface Applied {
+  added: number;
+  updated: number;
+  removed: number;
+  artwork: number;
+  restart_needed: boolean;
+}
+
+export interface ImageFile {
+  path: string;
+  name: string;
+  folder: string;
+}
+
+const previewSlots = (): SlotView[] =>
+  (["capsule", "wide_capsule", "hero", "logo", "icon"] as ArtSlot[]).map((slot) => ({
+    slot,
+    label: { capsule: "Capsule", wide_capsule: "Wide capsule", hero: "Hero", logo: "Logo", icon: "Icon" }[slot],
+    source: slot === "logo" ? "missing" : "generated",
+    preview: null,
+  }));
+
+export async function steamShortcut(romId: string): Promise<ShortcutView> {
+  if (!inTauri()) {
+    return {
+      rom_id: romId,
+      shown: true,
+      name: "Tidewalker",
+      default_name: "Tidewalker",
+      target: "/home/deck/Applications/romshelf.AppImage",
+      launch_options: `launch --id ${romId}`,
+      slots: previewSlots(),
+      auto_add: false,
+    };
+  }
+  return invoke<ShortcutView>("steam_shortcut", { romId });
+}
+
+/** Saves "show in Steam" and the name, and writes Steam's files. */
+export async function saveShortcut(romId: string, shown: boolean, name: string): Promise<Applied> {
+  if (!inTauri()) return { added: shown ? 1 : 0, updated: 0, removed: shown ? 0 : 1, artwork: 4, restart_needed: true };
+  return invoke<Applied>("save_shortcut", { romId, shown, name });
+}
+
+/** Uses an image for a slot; `null` goes back to the generated artwork. */
+export async function setShortcutArtwork(romId: string, slot: ArtSlot, path: string | null): Promise<ShortcutView> {
+  if (!inTauri()) return steamShortcut(romId);
+  return invoke<ShortcutView>("set_shortcut_artwork", { romId, slot, path });
+}
+
+export async function setSteamAutoAdd(on: boolean): Promise<Applied> {
+  if (!inTauri()) return { added: 0, updated: 0, removed: 0, artwork: 0, restart_needed: false };
+  return invoke<Applied>("set_steam_auto_add", { on });
+}
+
+/** True once per batch of changes Steam hasn't picked up yet. */
+export async function steamRestartNotice(): Promise<boolean> {
+  if (!inTauri()) return false;
+  return invoke<boolean>("steam_restart_notice");
+}
+
+export async function imageFiles(): Promise<ImageFile[]> {
+  if (!inTauri()) return [{ path: "/home/deck/Pictures/tidewalker.png", name: "tidewalker.png", folder: "Pictures" }];
+  return invoke<ImageFile[]>("image_files");
+}
+
+/** Shortcut changes written after a sync (new games added automatically): the count. */
+export async function onSteamChanged(handler: (changes: number) => void): Promise<UnlistenFn> {
+  if (!inTauri()) return () => {};
+  return listen<number>("steam-changed", (e) => handler(e.payload));
+}
+
+export interface StorageChoice {
+  path: string;
+  /** "This Deck" or "SD card (FF8S5)". */
+  label: string;
+  free: number | null;
+  current: boolean;
+}
+
+export interface SettingsView {
+  account: string | null;
+  drive_folder: string | null;
+  storage_root: string;
+  storage_available: boolean;
+  storage_free: number | null;
+  storage_choices: StorageChoice[];
+  save_versions: number;
+  auto_add: boolean;
+  version: string;
+  update_ready: string | null;
+}
+
+export async function settingsView(): Promise<SettingsView> {
+  if (!inTauri()) {
+    return {
+      account: "player@example.com",
+      drive_folder: "My Drive / Emulation",
+      storage_root: "/home/deck/Romshelf",
+      storage_available: true,
+      storage_free: 40 * 1024 ** 3,
+      storage_choices: [
+        { path: "/home/deck/Romshelf", label: "This Deck", free: 40 * 1024 ** 3, current: true },
+        { path: "/run/media/deck/SD/Romshelf", label: "SD card (SD)", free: 200 * 1024 ** 3, current: false },
+      ],
+      save_versions: 10,
+      auto_add: false,
+      version: "dev",
+      update_ready: null,
+    };
+  }
+  return invoke<SettingsView>("settings_view");
+}
+
+export async function setSaveVersions(count: number): Promise<void> {
+  if (inTauri()) await invoke("set_save_versions", { count });
+}
+
+export async function signOut(): Promise<void> {
+  if (inTauri()) await invoke("sign_out");
+}
+
+/** Moves downloaded ROMs to another folder; Romshelf restarts when it's done. */
+export async function changeStorage(path: string): Promise<void> {
+  if (inTauri()) await invoke("change_storage", { path });
+}
+
+export async function checkForUpdates(): Promise<void> {
+  if (inTauri()) await invoke("check_for_updates");
+}
+
+export async function diagnostics(): Promise<string> {
+  if (!inTauri()) return "Romshelf dev\n(browser preview)\n";
+  return invoke<string>("diagnostics");
+}
+
+export interface TransferRow {
+  rom_id: string;
+  name: string;
+  kind: "download" | "backup";
+  state: "queued" | "running" | "waiting";
+  size: number;
+  message: string | null;
+}
+
+export async function transfers(): Promise<TransferRow[]> {
+  if (!inTauri()) return [];
+  return invoke<TransferRow[]>("transfers");
+}
+
+/** Asks Steam to show its on-screen keyboard. */
+export async function openSteamKeyboard(): Promise<void> {
+  if (inTauri()) await invoke("open_steam_keyboard");
 }

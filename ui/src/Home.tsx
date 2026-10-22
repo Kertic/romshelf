@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AppInfo, LibraryEntry, Progress, StorageStatus, SyncStatus } from "./api";
-import { counts, inTab, syncLine, TABS } from "./library";
+import { Drawer } from "./Drawer";
+import { counts, inTab, ROW_HEIGHT, syncLine, TABS, visibleRows, WINDOW_FROM } from "./library";
+import type { View } from "./RomActions";
 
 function initials(name: string): string {
   return name
@@ -50,11 +52,18 @@ interface Props {
   /** Live download progress by rom-id. */
   progress?: Record<string, Progress>;
   storage?: StorageStatus | null;
-  /** A on a tile: open its actions. */
-  onOpen?: (romId: string) => void;
+  /** A on a tile, or the drawer: open its ROM page, with a dialog open when given. */
+  onOpen?: (romId: string, view?: View) => void;
+  /** The drawer's main action. */
+  onPlay?: (romId: string) => void;
+  onDownload?: (romId: string) => void;
+  onSetup?: (emulatorId: string) => void;
   onOpenEmulators?: () => void;
-  onOpenSpike: () => void;
-  onQuit: () => void;
+  onOpenSettings?: () => void;
+  onOpenTransfers?: () => void;
+  /** Moved to Settings in stage 9; kept so callers needn't change. */
+  onOpenSpike?: () => void;
+  onQuit?: () => void;
 }
 
 /** The Library (UI guide 5.1): system tabs, the tile grid, files Romshelf can't run, and the folder strip. */
@@ -71,11 +80,24 @@ export function Home({
   progress = {},
   storage = null,
   onOpen,
+  onPlay,
+  onDownload,
+  onSetup,
   onOpenEmulators,
-  onOpenSpike,
-  onQuit,
+  onOpenSettings,
+  onOpenTransfers,
 }: Props) {
   const now = useNow();
+  /** The tile with focus: the drawer shows its game. */
+  const [focused, setFocused] = useState<string | null>(null);
+  // Large libraries draw only the rows near the screen.
+  const scroller = useRef<HTMLElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState({ top: 0, height: 800, gridTop: 0 });
+  const measure = () => {
+    const el = scroller.current;
+    if (el) setView({ top: el.scrollTop, height: el.clientHeight || 800, gridTop: gridRef.current?.offsetTop ?? 0 });
+  };
   const current = TABS.find((t) => t.id === tab) ?? TABS[0];
   const shown = entries ? inTab(entries, current.id) : null;
   const roms = shown?.filter((e) => e.rom.recognized) ?? [];
@@ -86,10 +108,15 @@ export function Home({
   const romsPath = `${driveFolder ?? "My Drive / Emulation"} / roms`;
   const folderPath = current.id === "all" ? romsPath : `${romsPath} / ${current.id}`;
   const syncProblem = sync && (sync.state === "offline" || sync.state === "error") ? sync.message : null;
+  // Downloads under way and save backups waiting: the top band's Transfers count.
+  const activity = (entries ?? []).filter(
+    (e) => e.rom.location.state === "downloading" || (e.save.pending && e.save.last_error != null),
+  ).length;
+  const drawerEntry = roms.find((e) => e.rom.id === focused) ?? roms[0] ?? null;
 
   return (
     <>
-      <header className="top-band">
+      <header className="top-band" data-region="top">
         <div className="app-name">Romshelf</div>
         <nav className="tabs" aria-label="Systems">
           <span className="key-cap mono">L1</span>
@@ -124,18 +151,35 @@ export function Home({
         </button>
         <button
           type="button"
+          className="top-button transfers-button"
+          data-focusable
+          data-hint="Open"
+          onClick={onOpenTransfers}
+          aria-label={activity > 0 ? `Transfers, ${activity} in progress` : "Transfers"}
+        >
+          Transfers
+          {activity > 0 && <span className="transfers-count">{activity}</span>}
+        </button>
+        <button type="button" className="top-button" data-focusable data-hint="Open" onClick={onOpenSettings}>
+          Settings
+        </button>
+        <button
+          type="button"
           className={line.warn ? "sync-status warn" : "sync-status"}
           data-focusable
           data-hint="Sync now"
           disabled={busy}
           onClick={onSync}
+          aria-label={line.text}
+          title={line.text}
         >
           <span className={busy ? "sync-dot busy" : "sync-dot"} aria-hidden />
-          {line.text}
+          {line.short}
         </button>
       </header>
 
-      <main className="content home">
+      <div className="library">
+      <main className="content home" ref={scroller} onScroll={measure} data-region="grid">
         <div className="home-heading">
           <h1 className="section-heading">{current.heading}</h1>
           {entries && (
@@ -152,6 +196,18 @@ export function Home({
             The storage at {storage.root} isn&rsquo;t available, so downloaded games can&rsquo;t be played. Insert
             the SD card that holds your ROMs.
           </p>
+        )}
+
+        {!entries && !error && (
+          <div className="grid" aria-busy="true" aria-label="Loading the library">
+            {Array.from({ length: 8 }, (_, i) => (
+              <span key={i} className="tile skeleton" aria-hidden>
+                <span className="cover" />
+                <span className="skeleton-line" />
+                <span className="skeleton-line short" />
+              </span>
+            ))}
+          </div>
         )}
 
         {entries && entries.length === 0 && (
@@ -175,9 +231,21 @@ export function Home({
           <p className="muted">No {current.label} ROMs yet.</p>
         )}
 
-        {roms.length > 0 && (
-          <div className="grid">
-            {roms.map((e) => {
+        {roms.length > 0 && (() => {
+          const windowed = roms.length > WINDOW_FROM;
+          const rowCount = Math.ceil(roms.length / 4);
+          const { first, last } = windowed
+            ? visibleRows(view.top, view.height, view.gridTop, rowCount)
+            : { first: 0, last: rowCount };
+          const shownTiles = roms.slice(first * 4, last * 4);
+          return (
+          <div
+            className={windowed ? "grid windowed" : "grid"}
+            ref={gridRef}
+            style={windowed ? { paddingTop: first * ROW_HEIGHT, paddingBottom: (rowCount - last) * ROW_HEIGHT } : undefined}
+            aria-rowcount={windowed ? rowCount : undefined}
+          >
+            {shownTiles.map((e) => {
               const status = tileStatus(e, progress[e.rom.id]);
               return (
                 <button
@@ -189,6 +257,10 @@ export function Home({
                   data-rom-id={e.rom.id}
                   type="button"
                   onClick={() => onOpen?.(e.rom.id)}
+                  onFocus={(ev) => {
+                    setFocused(e.rom.id);
+                    ev.currentTarget.scrollIntoView?.({ block: "nearest" });
+                  }}
                 >
                   <span className="cover" style={{ background: e.system_colour }}>
                     <span className="cover-system mono">{e.system_label}</span>
@@ -202,7 +274,8 @@ export function Home({
               );
             })}
           </div>
-        )}
+          );
+        })()}
 
         {unrecognized.length > 0 && (
           <section className="unrecognized" aria-label="Files Romshelf can't run">
@@ -228,15 +301,19 @@ export function Home({
           </div>
         )}
 
-        <div className="home-actions">
-          <button className="button outline" data-focusable data-hint="Open" type="button" onClick={onOpenSpike}>
-            Open gamepad test
-          </button>
-          <button className="button outline" data-focusable data-hint="Quit" type="button" onClick={onQuit}>
-            Quit Romshelf
-          </button>
-        </div>
       </main>
+      {drawerEntry && (
+        <Drawer
+          entry={drawerEntry}
+          progress={progress[drawerEntry.rom.id]}
+          onOpen={(view) => onOpen?.(drawerEntry.rom.id, view)}
+          onPlay={() => onPlay?.(drawerEntry.rom.id)}
+          onDownload={() => onDownload?.(drawerEntry.rom.id)}
+          onSetup={() => drawerEntry.emulator_id && onSetup?.(drawerEntry.emulator_id)}
+          offline={sync?.state === "offline"}
+        />
+      )}
+      </div>
     </>
   );
 }

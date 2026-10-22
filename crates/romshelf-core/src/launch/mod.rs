@@ -2,10 +2,11 @@
 //! button and `romshelf doctor --id` share.
 //!
 //! Find the game; download it if it isn't on the Deck; set up its emulator if needed; check its
-//! save against Drive; write controls (stage 7); start the emulator and wait; back up the save.
+//! save against Drive; write its controls; start the emulator and wait; back up the save.
 //! The emulator's exit code is returned unchanged, whatever happens to the backup.
 
 use crate::clock::Clock;
+use crate::controls;
 use crate::db::Database;
 use crate::drive::scaffold::DriveLayout;
 use crate::drive::DriveClient;
@@ -236,7 +237,7 @@ pub fn plan(ctx: &LaunchContext, target: &Target) -> Result<Vec<PlannedStep>> {
     });
     out.push(PlannedStep {
         step: Step::Controls,
-        detail: "Write this game's controls (arrives with controls)".into(),
+        detail: "Write this game's controls: the emulator's default with its differences".into(),
     });
     let cmd = adapter.launch_command(&rom, &session, ctx.paths)?;
     out.push(PlannedStep {
@@ -307,6 +308,9 @@ pub fn run(
         }
     }
 
+    // A restore that Romshelf was ended in the middle of is put right first.
+    let _ = saves::recover_interrupted(&ctx.db(), ctx.registry, ctx.paths);
+
     // Romshelf's session folder is checked before every launch, so an emulator set up by an
     // earlier version gets anything added since (Dolphin's copied settings).
     adapter.prepare_session(ctx.paths)?;
@@ -323,10 +327,16 @@ pub fn run(
     // Owed until the backup after the game succeeds, even if Romshelf is ended with the game.
     saves::mark_pending(&ctx.db(), &rom.id)?;
 
-    // Stage 7 fills this in.
+    // The game's layout: the emulator's default with this game's differences.
     events(LaunchEvent::Step {
         step: Step::Controls,
     });
+    let layout = controls::store::effective(
+        &ctx.db(),
+        &controls::Scope::new(adapter.id(), rom.system),
+        &rom.id,
+    )?;
+    adapter.write_controls(&layout, &rom, ctx.paths)?;
 
     events(LaunchEvent::Step { step: Step::Run });
     let rom = resolve(&ctx.db(), &Target::Id(rom.id.to_string()))?;
@@ -453,6 +463,12 @@ fn log_launch(
             line.push_str(&format!("    {out}\n"));
         }
     }
+    // Past 1 MB the log moves to launch.log.1, keeping three.
+    let _ = crate::diagnostics::rotate(
+        &dir.join("launch.log"),
+        crate::diagnostics::LOG_MAX_BYTES,
+        crate::diagnostics::LOGS_KEPT,
+    );
     let _ = std::fs::create_dir_all(&dir).and_then(|_| {
         std::fs::OpenOptions::new()
             .create(true)
@@ -460,4 +476,62 @@ fn log_launch(
             .open(dir.join("launch.log"))
             .and_then(|mut f| f.write_all(line.as_bytes()))
     });
+}
+
+/// How long View and Menu are held together to quit a game.
+pub const QUIT_HOLD: Duration = Duration::from_secs(1);
+
+/// Romshelf's own quit combination: View and Menu held together for `QUIT_HOLD`. It works the
+/// same in every emulator and every state, whatever the game's layout, because Romshelf reads
+/// the controller itself and stops the emulator cleanly (saves are written first).
+#[derive(Debug, Default)]
+pub struct QuitCombo {
+    since: Option<Instant>,
+    fired: bool,
+}
+
+impl QuitCombo {
+    /// Feeds whether both buttons are held now; true once per hold, when it reaches a second.
+    pub fn update(&mut self, held: bool, now: Instant) -> bool {
+        if !held {
+            self.since = None;
+            self.fired = false;
+            return false;
+        }
+        let since = *self.since.get_or_insert(now);
+        if !self.fired && now.duration_since(since) >= QUIT_HOLD {
+            self.fired = true;
+            return true;
+        }
+        false
+    }
+}
+
+#[cfg(test)]
+mod quit_tests {
+    use super::*;
+
+    #[test]
+    fn quits_once_after_a_second_held() {
+        let t0 = Instant::now();
+        let mut q = QuitCombo::default();
+        assert!(!q.update(true, t0));
+        assert!(!q.update(true, t0 + Duration::from_millis(900)));
+        assert!(q.update(true, t0 + QUIT_HOLD));
+        assert!(
+            !q.update(true, t0 + Duration::from_secs(3)),
+            "once per hold"
+        );
+    }
+
+    #[test]
+    fn letting_go_starts_again() {
+        let t0 = Instant::now();
+        let mut q = QuitCombo::default();
+        q.update(true, t0);
+        assert!(!q.update(false, t0 + Duration::from_millis(800)));
+        assert!(!q.update(true, t0 + Duration::from_millis(900)));
+        assert!(!q.update(true, t0 + Duration::from_millis(1800)));
+        assert!(q.update(true, t0 + Duration::from_millis(1900)));
+    }
 }

@@ -5,6 +5,8 @@ pub mod clock;
 pub mod connection;
 pub mod controls;
 pub mod db;
+pub mod diagnostics;
+pub mod doctor;
 pub mod drive;
 pub mod emulators;
 pub mod error;

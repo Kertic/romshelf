@@ -26,7 +26,7 @@ const CORES_URL: &str = "https://buildbot.libretro.com/nightly/linux/x86_64/late
 pub enum SetupStep {
     /// The Flatpak, cores, session folder and BIOS files.
     Install,
-    /// Romshelf's default controls. Recorded as done until stage 7 fills it in.
+    /// Romshelf's built-in layout stored as the emulator's default for each of its systems.
     DefaultControls,
     /// Romshelf's save folders on the Deck, and `saves/<system>/` and `states/<system>/` in
     /// Drive for each of the emulator's systems.
@@ -233,6 +233,21 @@ pub fn run_setup(
             }
             adapter.prepare_session(ctx.paths)?;
             report = copy_bios(ctx, adapter)?;
+        }
+        if step == SetupStep::DefaultControls {
+            // Romshelf's built-in layout becomes the emulator's default for each system, unless
+            // one is already there (set on this Deck, or taken from Drive).
+            for system in adapter.systems() {
+                let scope = crate::controls::Scope::new(adapter.id(), *system);
+                if ctx.db.control_profile(&scope.key(), None)?.is_none() {
+                    crate::controls::store::set_default(
+                        ctx.db,
+                        &scope,
+                        &crate::controls::defaults::built_in(&scope),
+                        0,
+                    )?;
+                }
+            }
         }
         if step == SetupStep::LinkSaves {
             adapter.prepare_session(ctx.paths)?;
